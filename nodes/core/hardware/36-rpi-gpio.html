@@ -45,7 +45,6 @@
         <option value="tri">none</option>
         <option value="up">pullup</option>
         <option value="down">pulldown</option>
-        <!--<option value="tri">tristate</option>-->
         </select>
     </div>
     <div class="form-row">
@@ -58,18 +57,20 @@
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Name">
     </div>
+    <div class="form-tips" id="pin-tip"><b>Pins in Use</b>: </div>
     <div class="form-tips">Tip: Only Digital Input is supported - input must be 0 or 1.</div>
 </script>
 
 <script type="text/x-red" data-help-name="rpi-gpio in">
     <p>Raspberry Pi input node. Generates a <b>msg.payload</b> with either a 0 or 1 depending on the state of the input pin. Requires the gpio command to work.</p>
-    <p>You may also enable the input pullup resitor or the pulldown resistor.</p>
+    <p>You may also enable the input pullup resistor or the pulldown resistor.</p>
     <p>The <b>msg.topic</b> is set to <i>pi/{the pin number}</i></p>
+    <p>Requires the RPi.GPIO python library version 0.5.8 (or better) in order to work.</p>
     <p><b>Note:</b> we are using the actual physical pin numbers on connector P1 as they are easier to locate.</p>
-    <p><b>Note:</b> This node currently polls the pin every 250mS. This is not ideal as it loads the cpu.</p>
-</script>
+    </script>
 
 <script type="text/javascript">
+    var pinsInUse = {};
     RED.nodes.registerType('rpi-gpio in',{
         category: 'Raspberry Pi',
         color:"#c6dbef",
@@ -82,6 +83,12 @@
         inputs:0,
         outputs:1,
         icon: "rpi.png",
+        info: function() {
+            if ( Object.keys(pinsInUse).length !== 0 ) {
+                return "**Pins in use** : "+Object.keys(pinsInUse);
+            }
+            else { return ""; }
+        },
         label: function() {
             return this.name||"Pin: "+this.pin ;
         },
@@ -95,22 +102,43 @@
                 if ((data.type === "Model B+") || (data.type === "Model A+")) {
                     $('#node-input-pin').append($("<option></option>").attr("value",27).text("27 - SDA0"));
                     $('#node-input-pin').append($("<option></option>").attr("value",28).text("28 - SCL0"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",29).text("29 - GPIO21"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",31).text("31 - GPIO22"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",32).text("32 - GPIO26"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",33).text("33 - GPIO23"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",35).text("35 - GPIO24"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",36).text("36 - GPIO27"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",37).text("37 - GPIO25"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",38).text("38 - GPIO28"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",40).text("40 - GPIO29"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",29).text("29 - GPIO5"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",31).text("31 - GPIO6"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",32).text("32 - GPIO12"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",33).text("33 - GPIO13"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",35).text("35 - GPIO19"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",36).text("36 - GPIO16"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",37).text("37 - GPIO26"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",38).text("38 - GPIO20"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",40).text("40 - GPIO21"));
                     $('#node-input-pin').val(pinnow);
+                }
+            });
+
+            $.getJSON('rpi-pins/'+this.id,function(data) {
+                pinsInUse = data || {};
+                $('#pin-tip').html("<b>Pins in Use</b>: "+Object.keys(data));
+            });
+
+            $("#node-input-pin").change(function() {
+                var pinnew = $("#node-input-pin").val();
+                if ((pinnew) && (pinnew !== pinnow)) {
+                    if (pinsInUse.hasOwnProperty(pinnew)) {
+                        RED.notify("Pin "+pinnew+" already in use.","warn");
+                    }
+                    pinnow = pinnew;
+                }
+            });
+
+            $("#node-input-intype").change(function() {
+                var newtype = $("#node-input-intype option:selected").val();
+                if ((pinsInUse.hasOwnProperty(pinnow)) && (pinsInUse[pinnow] !== newtype)) {
+                    RED.notify("Pin "+pinnow+" already set as "+pinsInUse[pinnow],"error");
                 }
             });
         }
     });
 </script>
-
 
 <script type="text/x-red" data-template-name="rpi-gpio out">
     <div class="form-row">
@@ -123,7 +151,7 @@
             <option value="8">8 - TxD </option>
             <option value="10">10 - RxD </option>
             <option value="11">11 - GPIO0</option>
-            <option value="12">12 - GPIO1 (PWM)</option>
+            <option value="12">12 - GPIO1</option>
             <option value="13">13 - GPIO2</option>
             <option value="15">15 - GPIO3</option>
             <option value="16">16 - GPIO4</option>
@@ -161,6 +189,7 @@
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Name">
     </div>
+    <div class="form-tips" id="pin-tip"><b>Pins in Use</b>: </div>
     <div class="form-tips" id="dig-tip"><b>Tip</b>: For digital output - input must be 0 or 1.</div>
     <div class="form-tips" id="pwm-tip"><b>Tip</b>: For PWM output - input must be between 0 to 1023.</div>
 </script>
@@ -169,11 +198,13 @@
     <p>Raspberry Pi output node. Expects a <b>msg.payload</b> with either a 0 or 1 (or true or false). Requires the gpio command to work.</p>
     <p>Will set the selected physical pin high or low depending on the value passed in.</p>
     <p>The initial value of the pin at deploy time can also be set to 0 or 1.</p>
-    <p>Use of PWM on Pin 12 - GPIO1 will interfere with any other audio playback.</p>
+    <p>When using PWM mode - expects an input value of a number 0 - 100.</p>
+    <p>Requires the RPi.GPIO python library version 0.5.8 (or better) in order to work.</p>
     <p><b>Note:</b> we are using the actual physical pin numbers on connector P1 as they are easier to locate.</p>
 </script>
 
 <script type="text/javascript">
+    var pinsInUse = {};
     RED.nodes.registerType('rpi-gpio out',{
         category: 'Raspberry Pi',
         color:"#c6dbef",
@@ -187,9 +218,15 @@
         inputs:1,
         outputs:0,
         icon: "rpi.png",
+        info: function() {
+            if ( Object.keys(pinsInUse).length !== 0 ) {
+                return "**Pins in use** : "+Object.keys(pinsInUse);
+            }
+            else { return ""; }
+        },
         align: "right",
         label: function() {
-            if ((this.pin == 12) && (this.out === "pwm")) { return this.name || "PWM: 12"; }
+            if (this.out === "pwm") { return this.name || "PWM: "+this.pin; }
             else { return this.name||"Pin: "+this.pin ; }
         },
         labelStyle: function() {
@@ -203,30 +240,40 @@
                 if ((data.type === "Model B+") || (data.type === "Model A+")) {
                     $('#node-input-pin').append($("<option></option>").attr("value",27).text("27 - SDA0"));
                     $('#node-input-pin').append($("<option></option>").attr("value",28).text("28 - SCL0"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",29).text("29 - GPIO21"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",31).text("31 - GPIO22"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",32).text("32 - GPIO26"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",33).text("33 - GPIO23"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",35).text("35 - GPIO24"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",36).text("36 - GPIO27"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",37).text("37 - GPIO25"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",38).text("38 - GPIO28"));
-                    $('#node-input-pin').append($("<option></option>").attr("value",40).text("40 - GPIO29"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",29).text("29 - GPIO5"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",31).text("31 - GPIO6"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",32).text("32 - GPIO12"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",33).text("33 - GPIO13"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",35).text("35 - GPIO19"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",36).text("36 - GPIO16"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",37).text("37 - GPIO26"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",38).text("38 - GPIO20"));
+                    $('#node-input-pin').append($("<option></option>").attr("value",40).text("40 - GPIO21"));
                     $('#node-input-pin').val(pinnow);
                 }
             });
 
-            var hidepwm = function() {
-                if ($('#node-input-pin').val() == 12) {
-                    $('#node-set-pwm').show();
+            $.getJSON('rpi-pins/'+this.id,function(data) {
+                pinsInUse = data || {};
+                $('#pin-tip').html("<b>Pins in Use</b>: "+Object.keys(data));
+            });
+
+            $("#node-input-pin").change(function() {
+                var pinnew = $("#node-input-pin").val();
+                if ((pinnew) && (pinnew !== pinnow)) {
+                    if (pinsInUse.hasOwnProperty(pinnew)) {
+                        RED.notify("Pin "+pinnew+" already in use.","warn");
+                    }
+                    pinnow = pinnew;
                 }
-                else {
-                    $('#node-set-pwm').hide();
-                    $('#node-input-out').val("out");
+            });
+
+            $("#node-input-out").change(function() {
+                var newtype = $("#node-input-out option:selected").val();
+                if ((pinsInUse.hasOwnProperty(pinnow)) && (pinsInUse[pinnow] !== newtype)) {
+                    RED.notify("Pin "+pinnow+" already set as "+pinsInUse[pinnow],"error");
                 }
-            };
-            $("#node-input-pin").change(function () { hidepwm(); });
-            hidepwm();
+            });
 
             var hidestate = function () {
                 if ($("#node-input-out").val() === "pwm") {
@@ -254,6 +301,54 @@
             };
             $("#node-input-set").change(function () { setstate(); });
             setstate();
+        }
+    });
+</script>
+
+<script type="text/x-red" data-template-name="rpi-mouse">
+    <div class="form-row">
+        <label for="node-input-butt"><i class="fa fa-circle"></i> Button</label>
+        <select type="text" id="node-input-butt" style="width: 250px;">
+            <option value="1">left</option>
+            <option value="2">right</option>
+            <option value="4">middle</option>
+            <option value="7">any</option>
+         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<script type="text/x-red" data-help-name="rpi-mouse">
+    <p>Raspberry Pi mouse button node. Generates a <b>msg.payload</b> with
+    either a 1 or 0 when the selected mouse button is pressed and released</p>
+    <p>Also sets <b>msg.button</b> to the code value, 1 = left, 2 = right, 4 = middle,
+    so you can work out which button or combination was pressed.</p>
+    <p>And sets <b>msg.topic</b> to <i>pi/mouse</i>.</p>
+</script>
+
+<script type="text/javascript">
+    RED.nodes.registerType('rpi-mouse',{
+        category: 'Raspberry Pi',
+        color:"#c6dbef",
+        defaults: {
+            name: { value:"" },
+            butt: { value:"1",required:true }
+        },
+        inputs:0,
+        outputs:1,
+        icon: "rpi.png",
+        label: function() {
+            var na = "Pi Mouse";
+            if (this.butt === "1") { na += " Left"; }
+            if (this.butt === "2") { na += " Right"; }
+            if (this.butt === "4") { na += " Middle"; }
+            return this.name||na;
+        },
+        labelStyle: function() {
+            return this.name?"node_label_italic":"";
         }
     });
 </script>

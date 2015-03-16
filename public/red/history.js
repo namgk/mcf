@@ -1,5 +1,5 @@
 /**
- * Copyright 2013 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,20 +51,20 @@ RED.history = (function() {
                     if (ev.workspaces) {
                         for (i=0;i<ev.workspaces.length;i++) {
                             RED.nodes.removeWorkspace(ev.workspaces[i].id);
-                            RED.view.removeWorkspace(ev.workspaces[i]);
+                            RED.workspaces.remove(ev.workspaces[i]);
                         }
                     }
                     if (ev.subflows) {
                         for (i=0;i<ev.subflows.length;i++) {
                             RED.nodes.removeSubflow(ev.subflows[i]);
-                            RED.view.removeWorkspace(ev.subflows[i]);
+                            RED.workspaces.remove(ev.subflows[i]);
                         }
                     }
                 } else if (ev.t == "delete") {
                     if (ev.workspaces) {
                         for (i=0;i<ev.workspaces.length;i++) {
                             RED.nodes.addWorkspace(ev.workspaces[i]);
-                            RED.view.addWorkspace(ev.workspaces[i]);
+                            RED.workspaces.add(ev.workspaces[i]);
                         }
                     }
                     if (ev.subflow) {
@@ -192,7 +192,7 @@ RED.history = (function() {
                     }
                     
                     RED.nodes.removeSubflow(ev.subflow);
-                    RED.view.removeWorkspace(ev.subflow);
+                    RED.workspaces.remove(ev.subflow);
                     
                     if (ev.removedLinks) {
                         for (i=0;i<ev.removedLinks.length;i++) {
@@ -200,8 +200,9 @@ RED.history = (function() {
                         }
                     }
                 }
-                RED.view.dirty(ev.dirty);
-                RED.view.redraw();
+                RED.nodes.dirty(ev.dirty);
+                RED.view.redraw(true);
+                RED.palette.refresh();
             }
         }
     }

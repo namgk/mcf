@@ -1,5 +1,5 @@
 /**
- * Copyright 2013,2014 IBM Corp.
+ * Copyright 2013,2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ module.exports = function(RED) {
     var cors = require('cors');
     var jsonParser = express.json();
     var urlencParser = express.urlencoded();
+    var onHeaders = require('on-headers');
 
     function rawBodyParser(req, res, next) {
         if (req._body) { return next(); }
@@ -74,14 +75,34 @@ module.exports = function(RED) {
                 RED.httpNode.options(this.url,corsHandler);
             }
 
+            var metricsHandler = function(req,res,next) { next(); }
+
+            if (this.metric()) {
+                metricsHandler = function(req, res, next) {
+                    var startAt = process.hrtime();
+                    onHeaders(res, function() {
+                        if(res._msgId) {
+                            var diff = process.hrtime(startAt);
+                            var ms = diff[0] * 1e3 + diff[1] * 1e-6;
+                            var metricResponseTime = ms.toFixed(3);
+                            var metricContentLength = res._headers["content-length"];
+                            //assuming that _id has been set for res._metrics in HttpOut node!
+                            node.metric("response.time.millis", {_id:res._msgId} , metricResponseTime);
+                            node.metric("response.content-length.bytes", {_id:res._msgId} , metricContentLength);
+                        }
+                    });
+                    next();
+                };
+            }
+
             if (this.method == "get") {
-                RED.httpNode.get(this.url,corsHandler,this.callback,this.errorHandler);
+                RED.httpNode.get(this.url,corsHandler,metricsHandler,this.callback,this.errorHandler);
             } else if (this.method == "post") {
-                RED.httpNode.post(this.url,corsHandler,jsonParser,urlencParser,rawBodyParser,this.callback,this.errorHandler);
+                RED.httpNode.post(this.url,corsHandler,metricsHandler,jsonParser,urlencParser,rawBodyParser,this.callback,this.errorHandler);
             } else if (this.method == "put") {
-                RED.httpNode.put(this.url,corsHandler,jsonParser,urlencParser,rawBodyParser,this.callback,this.errorHandler);
+                RED.httpNode.put(this.url,corsHandler,metricsHandler,jsonParser,urlencParser,rawBodyParser,this.callback,this.errorHandler);
             } else if (this.method == "delete") {
-                RED.httpNode.delete(this.url,corsHandler,this.callback,this.errorHandler);
+                RED.httpNode.delete(this.url,corsHandler,metricsHandler,this.callback,this.errorHandler);
             }
 
             this.on("close",function() {
@@ -134,6 +155,8 @@ module.exports = function(RED) {
                         }
                         msg.res.set('content-length', len);
                     }
+
+                    msg.res._msgId = msg._id;
                     msg.res.send(statusCode,msg.payload);
                 }
             } else {
@@ -152,6 +175,7 @@ module.exports = function(RED) {
         this.ret = n.ret || "txt";
         var node = this;
         this.on("input",function(msg) {
+            var preRequestTimestamp = process.hrtime();
             node.status({fill:"blue",shape:"dot",text:"requesting"});
             var url;
             if (msg.url) {
@@ -203,7 +227,7 @@ module.exports = function(RED) {
             }
             var payload = null;
 
-            if (msg.payload && (method == "POST" || method == "PUT") ) {
+            if (msg.payload && (method == "POST" || method == "PUT" || method == "PATCH" ) ) {
                 if (typeof msg.payload === "string" || Buffer.isBuffer(msg.payload)) {
                     payload = msg.payload;
                 } else if (typeof msg.payload == "number") {
@@ -222,16 +246,26 @@ module.exports = function(RED) {
                     opts.headers['content-length'] = Buffer.byteLength(payload);
                 }
             }
-
             var req = ((/^https/.test(url))?https:http).request(opts,function(res) {
                 (node.ret === "bin") ? res.setEncoding('binary') : res.setEncoding('utf8');
                 msg.statusCode = res.statusCode;
                 msg.headers = res.headers;
                 msg.payload = "";
+                // msg.url = url;   // revert when fully deprecated
                 res.on('data',function(chunk) {
                     msg.payload += chunk;
                 });
                 res.on('end',function() {
+                    if (node.metric()) {
+                        // Calculate request time
+                        var diff = process.hrtime(preRequestTimestamp);
+                        var ms = diff[0] * 1e3 + diff[1] * 1e-6;
+                        var metricRequestDurationMillis = ms.toFixed(3);
+                        node.metric("duration.millis", msg, metricRequestDurationMillis);
+                        if(res.client && res.client.bytesRead) {
+                            node.metric("size.bytes", msg, res.client.bytesRead);
+                        }
+                    }
                     if (node.ret === "bin") {
                         msg.payload = new Buffer(msg.payload,"binary");
                     }

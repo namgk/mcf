@@ -17,6 +17,7 @@ var should = require("should");
 var when = require("when");
 var sinon = require("sinon");
 var child_process = require('child_process');
+var fs = require("fs");
 
 var comms = require("../../red/comms");
 var redNodes = require("../../red/nodes");
@@ -43,13 +44,11 @@ describe("red/server", function() {
     
     it("initialises components", function() {
         var commsInit = sinon.stub(comms,"init",function() {});
-        var apiInit = sinon.stub(api,"init",function() {});
         
         var dummyServer = {};
         server.init(dummyServer,{httpAdminRoot:"/"});
         
         commsInit.called.should.be.true;
-        apiInit.called.should.be.true;
         
         should.exist(server.app);
         should.exist(server.nodeApp);
@@ -57,26 +56,6 @@ describe("red/server", function() {
         server.server.should.equal(dummyServer);
         
         commsInit.restore();
-        apiInit.restore();
-    });
-    
-    it("does not initalise api when disabled", function() {
-        var commsInit = sinon.stub(comms,"init",function() {});
-        var apiInit = sinon.stub(api,"init",function() {});
-        
-        var dummyServer = {};
-        server.init(dummyServer,{httpAdminRoot:false});
-        
-        commsInit.called.should.be.true;
-        apiInit.called.should.be.false;
-        
-        should.exist(server.app);
-        should.exist(server.nodeApp);
-        
-        server.server.should.equal(dummyServer);
-        
-        commsInit.restore();
-        apiInit.restore();
     });
     
     it("stops components", function() {
@@ -133,7 +112,7 @@ describe("red/server", function() {
         });
         
         it("rejects when npm returns a 404", function(done) {
-            var exec = sinon.stub(child_process,"exec",function(cmd,cb) {
+            var exec = sinon.stub(child_process,"exec",function(cmd,opt,cb) {
                 cb(new Error(),""," 404  this_wont_exist");
             });
             
@@ -145,14 +124,13 @@ describe("red/server", function() {
             });
         });
         it("rejects with generic error", function(done) {
-            var exec = sinon.stub(child_process,"exec",function(cmd,cb) {
+            var exec = sinon.stub(child_process,"exec",function(cmd,opt,cb) {
                 cb(new Error("test_error"),"","");
             });
             
             server.installModule("this_wont_exist").then(function() {
                 done(new Error("Unexpected success"));
             }).otherwise(function(err) {
-                err.message.should.be.eql("Install failed");
                 done();
             }).finally(function() {
                 exec.restore();
@@ -160,7 +138,7 @@ describe("red/server", function() {
         });
         it("succeeds when module is found", function(done) {
             var nodeInfo = {module:"foo",types:["a"]};
-            var exec = sinon.stub(child_process,"exec",function(cmd,cb) {
+            var exec = sinon.stub(child_process,"exec",function(cmd,opt,cb) {
                 cb(null,"","");
             });
             var addModule = sinon.stub(redNodes,"addModule",function(md) {
@@ -198,14 +176,13 @@ describe("red/server", function() {
             var removeModule = sinon.stub(redNodes,"removeModule",function(md) {
                 return when.resolve(nodeInfo);
             });
-            var exec = sinon.stub(child_process,"exec",function(cmd,cb) {
+            var exec = sinon.stub(child_process,"exec",function(cmd,opt,cb) {
                 cb(new Error("test_error"),"","");
             });
             
             server.uninstallModule("this_wont_exist").then(function() {
                 done(new Error("Unexpected success"));
             }).otherwise(function(err) {
-                err.message.should.be.eql("Removal failed");
                 done();
             }).finally(function() {
                 exec.restore();
@@ -217,9 +194,10 @@ describe("red/server", function() {
             var removeModule = sinon.stub(redNodes,"removeModule",function(md) {
                 return nodeInfo;
             });
-            var exec = sinon.stub(child_process,"exec",function(cmd,cb) {
+            var exec = sinon.stub(child_process,"exec",function(cmd,opt,cb) {
                 cb(null,"","");
             });
+            var exists = sinon.stub(fs,"existsSync", function(fn) { return true; });
             
             server.uninstallModule("this_wont_exist").then(function(info) {
                 info.should.eql(nodeInfo);
@@ -232,6 +210,7 @@ describe("red/server", function() {
             }).finally(function() {
                 exec.restore();
                 removeModule.restore();
+                exists.restore();
             });
         });
     });

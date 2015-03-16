@@ -129,15 +129,23 @@ describe('html node', function() {
                         {id:"n2", type:"helper"}];
             
             helper.load(htmlNode, flow, function() {
-                var n1 = helper.getNode("n1");
-                var n2 = helper.getNode("n2");
-                n1.on("log", function(msg) {
-                    msg.should.have.property('msg');
-                    msg.msg.indexOf("Error:").should.be.above(-1);
-                    msg.msg.should.startWith("Error:");
+                try {
+                    var n1 = helper.getNode("n1");
+                    var n2 = helper.getNode("n2");
+                    n1.receive({payload:null,topic: "bar"});
+                    helper.log().called.should.be.true;
+                    var logEvents = helper.log().args.filter(function(evt) {
+                        return evt[0].type == "html";
+                    });
+                    logEvents.should.have.length(1);
+                    // Each logEvent is the array of args passed to the function.
+                    logEvents[0][0].should.have.a.property('msg');
+                    logEvents[0][0].msg.should.startWith("Error:");
+            
                     done();
-                });
-                n1.receive({payload:null,topic: "bar"});
+                } catch(err) {
+                    done(err);
+                }
             });          
         });
     });

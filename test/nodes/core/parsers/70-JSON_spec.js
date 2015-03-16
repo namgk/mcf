@@ -70,19 +70,24 @@ describe('JSON node', function() {
             jn1.receive({payload:obj,topic: "bar"});
         });
     });
-
+    
     it('should log an error if asked to parse an invalid json string', function(done) {
         var flow = [{id:"jn1",type:"json",wires:[["jn2"]],func:"return msg;"},
                     {id:"jn2", type:"helper"}];
         helper.load(jsonNode, flow, function() {
-            var jn1 = helper.getNode("jn1");
-            var jn2 = helper.getNode("jn2");
-            jn1.on("log", function(msg) {
-                msg.should.have.property('msg');
-                should.deepEqual("SyntaxError: Unexpected token o"+ "\nfoo", msg.msg);
+            try {
+                var jn1 = helper.getNode("jn1");
+                var jn2 = helper.getNode("jn2");
+                jn1.receive({payload:'foo',topic: "bar"});
+                var logEvents = helper.log().args.filter(function(evt) {
+                    return evt[0].type == "json";
+                });
+                logEvents.should.have.length(1);
+                logEvents[0][0].should.have.a.property('msg',"SyntaxError: Unexpected token o"+ "\nfoo");
                 done();
-            });
-            jn1.receive({payload:'foo',topic: "bar"});
+            } catch(err) {
+                done(err);
+            }
         });
     });
     
@@ -90,14 +95,19 @@ describe('JSON node', function() {
         var flow = [{id:"jn1",type:"json",wires:[["jn2"]],func:"return msg;"},
                     {id:"jn2", type:"helper"}];
         helper.load(jsonNode, flow, function() {
-            var jn1 = helper.getNode("jn1");
-            var jn2 = helper.getNode("jn2");
-            jn1.on("log", function(msg) {
-                msg.should.have.property('msg');
-                should.deepEqual("dropped: 1", msg.msg);
+            try {
+                var jn1 = helper.getNode("jn1");
+                var jn2 = helper.getNode("jn2");
+                jn1.receive({payload:1,topic: "bar"});
+                var logEvents = helper.log().args.filter(function(evt) {
+                    return evt[0].type == "json";
+                });
+                logEvents.should.have.length(1);
+                logEvents[0][0].should.have.a.property('msg',"dropped: 1");
                 done();
-            });
-            jn1.receive({payload:1,topic: "bar"});
+            } catch(err) {
+                done(err);
+            }
         });
     });
     

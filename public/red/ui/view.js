@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2014 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,12 +29,13 @@ RED.view = (function() {
         moveTouchCenter = [],
         touchStartTime = 0;
 
-
-    var activeWorkspace = 0;
-    var activeSubflow = null;
-    
     var workspaceScrollPositions = {};
 
+
+    var activeSubflow = null;
+    var activeNodes = [];
+    var activeLinks = [];
+    
     var selected_link = null,
         mousedown_link = null,
         mousedown_node = null,
@@ -45,7 +46,6 @@ RED.view = (function() {
         mouse_position = null,
         mouse_mode = 0,
         moving_set = [],
-        dirty = false,
         lasso = null,
         showStatus = false,
         lastClickNode = null,
@@ -67,10 +67,14 @@ RED.view = (function() {
         .append("svg:svg")
         .attr("width", space_width)
         .attr("height", space_height)
+        .attr("tabindex",1)
         .attr("pointer-events", "all")
-        .style("cursor","crosshair");
-
-     var vis = outer
+        .style("cursor","crosshair")
+        .on("mousedown", function() {
+            this.focus();
+        });
+        
+    var vis = outer
         .append('svg:g')
         .on("dblclick.zoom", null)
         .append('svg:g')
@@ -227,51 +231,40 @@ RED.view = (function() {
 
     var drag_line = vis.append("svg:path").attr("class", "drag_line");
 
-    $("#workspace-subflow-edit").click(function(event) {
-        showSubflowDialog(activeSubflow.id);
-        event.preventDefault();
-    });
-    $("#workspace-subflow-add-input").click(function(event) {
-        event.preventDefault();
-        if ($(this).hasClass("disabled")) {
-            return;
-        }
-        addSubflowInput(activeSubflow.id);
-    });
-    $("#workspace-subflow-add-output").click(function(event) {
-        event.preventDefault();
-        if ($(this).hasClass("disabled")) {
-            return;
-        }
-        addSubflowOutput(activeSubflow.id);
-    });
-    
-    var workspace_tabs = RED.tabs.create({
-        id: "workspace-tabs",
-        onchange: function(tab) {
-            if (tab.type == "subflow") {
-                $("#workspace-toolbar").show();
-            } else {
-                $("#workspace-toolbar").hide();
-            }
+    function updateActiveNodes() {
+        var activeWorkspace = RED.workspaces.active();
+        
+        activeNodes = RED.nodes.filterNodes({z:activeWorkspace});
+        
+        activeLinks = RED.nodes.filterLinks({
+            source:{z:activeWorkspace},
+            target:{z:activeWorkspace}
+        });
+    }
+
+    function init() {
+        RED.workspaces.on("change",function(event) {
             var chart = $("#chart");
-            if (activeWorkspace !== 0) {
-                workspaceScrollPositions[activeWorkspace] = {
+            if (event.old !== 0) {
+                workspaceScrollPositions[event.old] = {
                     left:chart.scrollLeft(),
                     top:chart.scrollTop()
                 };
             }
             var scrollStartLeft = chart.scrollLeft();
             var scrollStartTop = chart.scrollTop();
-
-            activeWorkspace = tab.id;
-            activeSubflow = RED.nodes.subflow(activeWorkspace);
+            
+            activeSubflow = RED.nodes.subflow(event.workspace);
             if (activeSubflow) {
                 $("#workspace-subflow-add-input").toggleClass("disabled",activeSubflow.in.length > 0);
             }
-            if (workspaceScrollPositions[activeWorkspace]) {
-                chart.scrollLeft(workspaceScrollPositions[activeWorkspace].left);
-                chart.scrollTop(workspaceScrollPositions[activeWorkspace].top);
+            
+            RED.menu.setDisabled("btn-workspace-edit", activeSubflow);
+            RED.menu.setDisabled("btn-workspace-delete",RED.workspaces.count() == 1 || activeSubflow);
+            
+            if (workspaceScrollPositions[event.workspace]) {
+                chart.scrollLeft(workspaceScrollPositions[event.workspace].left);
+                chart.scrollTop(workspaceScrollPositions[event.workspace].top);
             } else {
                 chart.scrollLeft(0);
                 chart.scrollTop(0);
@@ -282,74 +275,107 @@ RED.view = (function() {
                 mouse_position[0] += scrollDeltaLeft;
                 mouse_position[1] += scrollDeltaTop;
             }
-            
-            RED.menu.setDisabled("btn-workspace-edit", activeSubflow);
-            RED.menu.setDisabled("btn-workspace-delete",workspace_tabs.count() == 1 || activeSubflow);
-
             clearSelection();
             RED.nodes.eachNode(function(n) {
-                    n.dirty = true;
+                n.dirty = true;
             });
+            updateSelection();
+            updateActiveNodes();
             redraw();
-        },
-        ondblclick: function(tab) {
-            if (tab.type != "subflow") {
-                showRenameWorkspaceDialog(tab.id);
-            } else {
-                showSubflowDialog(tab.id);
-            }
-        },
-        onadd: function(tab) {
-            RED.menu.addItem("btn-workspace-menu",{
-                id:"btn-workspace-menu-"+tab.id.replace(".","-"),
-                label:tab.label,
-                onselect:function() {
-                    workspace_tabs.activateTab(tab.id);
-                }
-            });
-            RED.menu.setDisabled("btn-workspace-delete",workspace_tabs.count() == 1);
-        },
-        onremove: function(tab) {
-            RED.menu.setDisabled("btn-workspace-delete",workspace_tabs.count() == 1);
-            RED.menu.removeItem("btn-workspace-menu-"+tab.id.replace(".","-"));
-        }
-    });
-
-    var workspaceIndex = 0;
-
-    function addWorkspace() {
-        var tabId = RED.nodes.id();
-        do {
-            workspaceIndex += 1;
-        } while($("#workspace-tabs a[title='Sheet "+workspaceIndex+"']").size() !== 0);
-
-        var ws = {type:"tab",id:tabId,label:"Sheet "+workspaceIndex};
-        RED.nodes.addWorkspace(ws);
-        workspace_tabs.addTab(ws);
-        workspace_tabs.activateTab(tabId);
-        RED.history.push({t:'add',workspaces:[ws],dirty:dirty});
-        RED.view.dirty(true);
-    }
-    $(function() {
-        $('#btn-workspace-add-tab').on("click",addWorkspace);
+        });
         
-        RED.menu.setAction('btn-workspace-add',addWorkspace);
-        RED.menu.setAction('btn-workspace-edit',function() {
-            showRenameWorkspaceDialog(activeWorkspace);
+        $('#btn-zoom-out').click(function() {zoomOut();});
+        $('#btn-zoom-zero').click(function() {zoomZero();});
+        $('#btn-zoom-in').click(function() {zoomIn();});
+        $("#chart").on('DOMMouseScroll mousewheel', function (evt) {
+            if ( evt.altKey ) {
+                evt.preventDefault();
+                evt.stopPropagation();
+                var move = -(evt.originalEvent.detail) || evt.originalEvent.wheelDelta;
+                if (move <= 0) { zoomOut(); }
+                else { zoomIn(); }
+            }
         });
-        RED.menu.setAction('btn-workspace-delete',function() {
-            deleteWorkspace(activeWorkspace);
+        
+        // Handle nodes dragged from the palette
+        $("#chart").droppable({
+            accept:".palette_node",
+            drop: function( event, ui ) {
+                d3.event = event;
+                var selected_tool = ui.draggable[0].type;
+                
+                var m = /^subflow:(.+)$/.exec(selected_tool);
+                
+                if (activeSubflow && m) {
+                    var subflowId = m[1];
+                    if (subflowId === activeSubflow.id) {
+                        RED.notify("<strong>Error</strong>: Cannot add subflow to itself","error");
+                        return;
+                    }
+                    if (RED.nodes.subflowContains(m[1],activeSubflow.id)) {
+                        RED.notify("<strong>Error</strong>: Cannot add subflow - circular reference detected","error");
+                        return;
+                    }
+                    
+                }
+                
+                var mousePos = d3.touches(this)[0]||d3.mouse(this);
+                mousePos[1] += this.scrollTop;
+                mousePos[0] += this.scrollLeft;
+                mousePos[1] /= scaleFactor;
+                mousePos[0] /= scaleFactor;
+                
+                var nn = { id:(1+Math.random()*4294967295).toString(16),x: mousePos[0],y:mousePos[1],w:node_width,z:RED.workspaces.active()};
+                
+                nn.type = selected_tool;
+                nn._def = RED.nodes.getType(nn.type);
+                
+                if (!m) {
+                    nn.inputs = nn._def.inputs || 0;
+                    nn.outputs = nn._def.outputs;
+                    nn.changed = true;
+                    
+                    for (var d in nn._def.defaults) {
+                        if (nn._def.defaults.hasOwnProperty(d)) {
+                            nn[d] = nn._def.defaults[d].value;
+                        }
+                    }
+                    
+                    if (nn._def.onadd) {
+                        nn._def.onadd.call(nn);
+                    }
+                } else {
+                    var subflow = RED.nodes.subflow(m[1]);
+                    nn.inputs = subflow.in.length;
+                    nn.outputs = subflow.out.length;
+                }
+                
+                nn.h = Math.max(node_height,(nn.outputs||0) * 15);
+                RED.history.push({t:'add',nodes:[nn.id],dirty:RED.nodes.dirty()});
+                RED.nodes.add(nn);
+                RED.editor.validateNode(nn);
+                RED.nodes.dirty(true);
+                // auto select dropped node - so info shows (if visible)
+                clearSelection();
+                nn.selected = true;
+                moving_set.push({n:nn});
+                updateActiveNodes();
+                updateSelection();
+                redraw();
+                
+                if (nn._def.autoedit) {
+                    RED.editor.edit(nn);
+                }
+            }
         });
-    });
+        
+        RED.keyboard.add(/* z */ 90,{ctrl:true},function(){RED.history.pop();});
+        RED.keyboard.add(/* a */ 65,{ctrl:true},function(){selectAll();d3.event.preventDefault();});
+        RED.keyboard.add(/* = */ 187,{ctrl:true},function(){zoomIn();d3.event.preventDefault();});
+        RED.keyboard.add(/* - */ 189,{ctrl:true},function(){zoomOut();d3.event.preventDefault();});
+        RED.keyboard.add(/* 0 */ 48,{ctrl:true},function(){zoomZero();d3.event.preventDefault();});
+        RED.keyboard.add(/* v */ 86,{ctrl:true},function(){importNodes(clipboard);d3.event.preventDefault();});
 
-    function deleteWorkspace(id) {
-        if (workspace_tabs.count() == 1) {
-            return;
-        }
-        var ws = RED.nodes.workspace(id);
-        $( "#node-dialog-delete-workspace" ).dialog('option','workspace',ws);
-        $( "#node-dialog-delete-workspace-name" ).text(ws.label);
-        $( "#node-dialog-delete-workspace" ).dialog('open');
     }
 
     function canvasMouseDown() {
@@ -528,7 +554,7 @@ RED.view = (function() {
                 clearSelection();
             }
             RED.nodes.eachNode(function(n) {
-                if (n.z == activeWorkspace && !n.selected) {
+                if (n.z == RED.workspaces.active() && !n.selected) {
                     n.selected = (n.x > x && n.x < x2 && n.y > y && n.y < y2);
                     if (n.selected) {
                         n.dirty = true;
@@ -565,7 +591,7 @@ RED.view = (function() {
                 for (var j=0;j<moving_set.length;j++) {
                     ns.push({n:moving_set[j].n,ox:moving_set[j].ox,oy:moving_set[j].oy});
                 }
-                RED.history.push({t:'move',nodes:ns,dirty:dirty});
+                RED.history.push({t:'move',nodes:ns,dirty:RED.nodes.dirty()});
             }
         }
         if (mouse_mode == RED.state.MOVING || mouse_mode == RED.state.MOVING_ACTIVE) {
@@ -576,13 +602,14 @@ RED.view = (function() {
         }
         if (mouse_mode == RED.state.IMPORT_DRAGGING) {
             RED.keyboard.remove(/* ESCAPE */ 27);
-            setDirty(true);
+            updateActiveNodes();
+            RED.nodes.dirty(true);
         }
-        redraw();
-        // clear mouse event vars
         resetMouseVars();
+        redraw();
     }
 
+//<<<<<<< HEAD
     $('#btn-zoom-out').click(function() {zoomOut();});
     $('#btn-zoom-zero').click(function() {zoomZero();});
     $('#btn-zoom-in').click(function() {zoomIn();});
@@ -675,6 +702,8 @@ RED.view = (function() {
             }
     });
 
+//=======
+//>>>>>>> 5efc89d514c3a16ebf25715a3b1f3c5326dbec99
     function zoomIn() {
         if (scaleFactor < 2) {
             scaleFactor += 0.1;
@@ -694,7 +723,7 @@ RED.view = (function() {
 
     function selectAll() {
         RED.nodes.eachNode(function(n) {
-            if (n.z == activeWorkspace) {
+            if (n.z == RED.workspaces.active()) {
                 if (!n.selected) {
                     n.selected = true;
                     n.dirty = true;
@@ -735,17 +764,6 @@ RED.view = (function() {
     }
 
     function updateSelection() {
-        if (moving_set.length === 0) {
-            RED.menu.setDisabled("btn-export-menu",true);
-            RED.menu.setDisabled("btn-export-clipboard",true);
-            RED.menu.setDisabled("btn-export-library",true);
-            RED.menu.setDisabled("btn-convert-subflow",true);
-        } else {
-            RED.menu.setDisabled("btn-export-menu",false);
-            RED.menu.setDisabled("btn-export-clipboard",false);
-            RED.menu.setDisabled("btn-export-library",false);
-            RED.menu.setDisabled("btn-convert-subflow",false);
-        }
         if (moving_set.length === 0 && selected_link == null) {
             RED.keyboard.remove(/* backspace */ 8);
             RED.keyboard.remove(/* delete */ 46);
@@ -768,18 +786,19 @@ RED.view = (function() {
             RED.keyboard.add(/* left */ 37, function() { if(d3.event.shiftKey){moveSelection(-20,  0)}else{moveSelection(-1, 0);}d3.event.preventDefault();},endKeyboardMove);
             RED.keyboard.add(/* right*/ 39, function() { if(d3.event.shiftKey){moveSelection( 20,  0)}else{moveSelection( 1, 0);}d3.event.preventDefault();},endKeyboardMove);
         }
-        if (moving_set.length == 1) {
-            if (moving_set[0].n.type === "subflow" && moving_set[0].n.direction) {
-                RED.sidebar.info.refresh(RED.nodes.subflow(moving_set[0].n.z));
-            } else {
-                RED.sidebar.info.refresh(moving_set[0].n);
-            }
-        } else if (moving_set.length === 0 && activeSubflow) {
-            RED.sidebar.info.refresh(activeSubflow);
-        } else {
-            RED.sidebar.info.clear();
+
+        var selection = {};
+        
+        if (moving_set.length > 0) {
+            selection.nodes = moving_set.map(function(n) { return n.n;});
         }
+        if (selected_link != null) {
+            selection.link = selected_link;
+        }
+        
+        eventHandler.emit("selection-changed",selection);
     }
+    
     function endKeyboardMove() {
         var ns = [];
         for (var i=0;i<moving_set.length;i++) {
@@ -787,7 +806,7 @@ RED.view = (function() {
             delete moving_set[i].ox;
             delete moving_set[i].oy;
         }
-        RED.history.push({t:'move',nodes:ns,dirty:dirty});
+        RED.history.push({t:'move',nodes:ns,dirty:RED.nodes.dirty()});
     }
     function moveSelection(dx,dy) {
         var minX = 0;
@@ -823,7 +842,7 @@ RED.view = (function() {
         var removedSubflowOutputs = [];
         var removedSubflowInputs = [];
         
-        var startDirty = dirty;
+        var startDirty = RED.nodes.dirty();
         if (moving_set.length > 0) {
             for (var i=0;i<moving_set.length;i++) {
                 var node = moving_set[i].n;
@@ -912,18 +931,19 @@ RED.view = (function() {
             }
             
             moving_set = [];
-            if (removedNodes.length > 0) {
-                setDirty(true);
+            if (removedNodes.length > 0 || removedSubflowOutputs.length > 0 || removedSubflowInputs.length > 0) {
+                RED.nodes.dirty(true);
             }
         }
         if (selected_link) {
             RED.nodes.removeLink(selected_link);
             removedLinks.push(selected_link);
-            setDirty(true);
+            RED.nodes.dirty(true);
         }
         RED.history.push({t:'delete',nodes:removedNodes,links:removedLinks,subflowOutputs:removedSubflowOutputs,subflowInputs:removedSubflowInputs,dirty:startDirty});
 
         selected_link = null;
+        updateActiveNodes();
         updateSelection();
         redraw();
     }
@@ -981,7 +1001,7 @@ RED.view = (function() {
         if (mouse_mode == RED.state.JOINING && mousedown_node) {
             if (typeof TouchEvent != "undefined" && d3.event instanceof TouchEvent) {
                 RED.nodes.eachNode(function(n) {
-                        if (n.z == activeWorkspace) {
+                        if (n.z == RED.workspaces.active()) {
                             var hw = n.w/2;
                             var hh = n.h/2;
                             if (n.x-hw<mouse_position[0] && n.x+hw> mouse_position[0] &&
@@ -1010,15 +1030,13 @@ RED.view = (function() {
                 dst = mousedown_node;
                 src_port = portIndex;
             }
-            var existingLink = false;
-            RED.nodes.eachLink(function(d) {
-                existingLink = existingLink || (d.source === src && d.target === dst && d.sourcePort == src_port);
-            });
+            var existingLink = RED.nodes.filterLinks({source:src,target:dst,sourcePort: src_port}).length !== 0;
             if (!existingLink) {
                 var link = {source: src, sourcePort:src_port, target: dst};
                 RED.nodes.addLink(link);
-                RED.history.push({t:'add',links:[link],dirty:dirty});
-                setDirty(true);
+                RED.history.push({t:'add',links:[link],dirty:RED.nodes.dirty()});
+                updateActiveNodes();
+                RED.nodes.dirty(true);
             } else {
             }
             selected_link = null;
@@ -1043,13 +1061,14 @@ RED.view = (function() {
     }
 
     function nodeMouseDown(d) {
+        focusView();
         //var touch0 = d3.event;
         //var pos = [touch0.pageX,touch0.pageY];
         //RED.touch.radialMenu.show(d3.select(this),pos);
         if (mouse_mode == RED.state.IMPORT_DRAGGING) {
             RED.keyboard.remove(/* ESCAPE */ 27);
             updateSelection();
-            setDirty(true);
+            RED.nodes.dirty(true);
             redraw();
             resetMouseVars();
             d3.event.stopPropagation();
@@ -1114,15 +1133,19 @@ RED.view = (function() {
     }
 
     function nodeButtonClicked(d) {
-        if (d._def.button.toggle) {
-            d[d._def.button.toggle] = !d[d._def.button.toggle];
-            d.dirty = true;
-        }
-        if (d._def.button.onclick) {
-            d._def.button.onclick.call(d);
-        }
-        if (d.dirty) {
-            redraw();
+        if (!d.changed) {
+            if (d._def.button.toggle) {
+                d[d._def.button.toggle] = !d[d._def.button.toggle];
+                d.dirty = true;
+            }
+            if (d._def.button.onclick) {
+                d._def.button.onclick.call(d);
+            }
+            if (d.dirty) {
+                redraw();
+            }
+        } else {
+            RED.notify("<strong>Warning</strong>: node has undeployed changes","warning");
         }
         d3.event.preventDefault();
     }
@@ -1145,9 +1168,11 @@ RED.view = (function() {
         vis.attr("transform","scale("+scaleFactor+")");
         outer.attr("width", space_width*scaleFactor).attr("height", space_height*scaleFactor);
 
+        // Don't bother redrawing nodes if we're drawing links
         if (mouse_mode != RED.state.JOINING) {
-            // Don't bother redrawing nodes if we're drawing links
-
+            
+            var dirtyNodes = {};
+            
             if (activeSubflow) {
                 var subflowOutputs = vis.selectAll(".subflowoutput").data(activeSubflow.out,function(d,i){ return d.id;});
                 subflowOutputs.exit().remove();
@@ -1241,6 +1266,7 @@ RED.view = (function() {
                         output.selectAll(".subflowport").classed("node_selected",function(d) { return d.selected; })
                         output.selectAll(".port_index").text(function(d){ return d.i+1});
                         output.attr("transform", function(d) { return "translate(" + (d.x-d.w/2) + "," + (d.y-d.h/2) + ")"; });
+                        dirtyNodes[d.id] = d;
                         d.dirty = false;
                     }
                 });
@@ -1249,6 +1275,7 @@ RED.view = (function() {
                         var input = d3.select(this);
                         input.selectAll(".subflowport").classed("node_selected",function(d) { return d.selected; })
                         input.attr("transform", function(d) { return "translate(" + (d.x-d.w/2) + "," + (d.y-d.h/2) + ")"; });
+                        dirtyNodes[d.id] = d;
                         d.dirty = false;
                     }
                 });
@@ -1257,7 +1284,7 @@ RED.view = (function() {
                 vis.selectAll(".subflowinput").remove();
             }
             
-            var node = vis.selectAll(".nodegroup").data(RED.nodes.nodes.filter(function(d) { return d.z == activeWorkspace }),function(d){return d.id});
+            var node = vis.selectAll(".nodegroup").data(activeNodes,function(d){return d.id});
             node.exit().remove();
 
             var nodeEnter = node.enter().insert("svg:g").attr("class", "node nodegroup");
@@ -1290,6 +1317,7 @@ RED.view = (function() {
                             .attr("height",node_height-4)
                             .attr("fill","#eee");//function(d) { return d._def.color;})
                         nodeButtonGroup.append('rect')
+                            .attr("class","node_button_button")
                             .attr("x",function(d) { return d._def.align == "right"? 10:5})
                             .attr("y",4)
                             .attr("rx",5)
@@ -1298,10 +1326,10 @@ RED.view = (function() {
                             .attr("height",node_height-12)
                             .attr("fill",function(d) { return d._def.color;})
                             .attr("cursor","pointer")
-                            .on("mousedown",function(d) {if (!lasso) { d3.select(this).attr("fill-opacity",0.2);d3.event.preventDefault(); d3.event.stopPropagation();}})
-                            .on("mouseup",function(d) {if (!lasso) { d3.select(this).attr("fill-opacity",0.4);d3.event.preventDefault();d3.event.stopPropagation();}})
-                            .on("mouseover",function(d) {if (!lasso) { d3.select(this).attr("fill-opacity",0.4);}})
-                            .on("mouseout",function(d) {if (!lasso) {
+                            .on("mousedown",function(d) {if (!lasso && !d.changed) {focusView();d3.select(this).attr("fill-opacity",0.2);d3.event.preventDefault(); d3.event.stopPropagation();}})
+                            .on("mouseup",function(d) {if (!lasso && !d.changed) { d3.select(this).attr("fill-opacity",0.4);d3.event.preventDefault();d3.event.stopPropagation();}})
+                            .on("mouseover",function(d) {if (!lasso && !d.changed) { d3.select(this).attr("fill-opacity",0.4);}})
+                            .on("mouseout",function(d) {if (!lasso  && !d.changed) {
                                 var op = 1;
                                 if (d._def.button.toggle) {
                                     op = d[d._def.button.toggle]?1:0.2;
@@ -1448,6 +1476,7 @@ RED.view = (function() {
 
             node.each(function(d,i) {
                     if (d.dirty) {
+                        dirtyNodes[d.id] = d;
                         //if (d.x < -50) deleteSelection();  // Delete nodes if dragged back to palette
                         if (d.resize) {
                             var l = d._def.label;
@@ -1549,7 +1578,12 @@ RED.view = (function() {
                         thisNode.selectAll(".node_icon_shade").attr("height",function(d){return d.h;});
                         thisNode.selectAll(".node_icon_shade_border").attr("d",function(d){ return "M "+(("right" == d._def.align) ?0:30)+" 1 l 0 "+(d.h-2)});
 
-
+                        thisNode.selectAll('.node_button').attr("opacity",function(d) {
+                            return d.changed?0.4:1
+                        });
+                        thisNode.selectAll('.node_button_button').attr("cursor",function(d) {
+                            return d.changed?"":"pointer";
+                        });
                         thisNode.selectAll('.node_right_button').attr("transform",function(d){
                                 var x = d.w-6;
                                 if (d._def.button.toggle && !d[d._def.button.toggle]) {
@@ -1613,80 +1647,95 @@ RED.view = (function() {
                         d.dirty = false;
                     }
             });
+            var link = vis.selectAll(".link").data(
+                activeLinks,
+                function(d) {
+                    return d.source.id+":"+d.sourcePort+":"+d.target.id+":"+d.target.i;
+                }
+            );
+            var linkEnter = link.enter().insert("g",".node").attr("class","link");
+    
+            linkEnter.each(function(d,i) {
+                var l = d3.select(this);
+                d.added = true;
+                l.append("svg:path").attr("class","link_background link_path")
+                   .on("mousedown",function(d) {
+                        mousedown_link = d;
+                        clearSelection();
+                        selected_link = mousedown_link;
+                        updateSelection();
+                        redraw();
+                        focusView();
+                        d3.event.stopPropagation();
+                    })
+                    .on("touchstart",function(d) {
+                        mousedown_link = d;
+                        clearSelection();
+                        selected_link = mousedown_link;
+                        updateSelection();
+                        redraw();
+                        focusView();
+                        d3.event.stopPropagation();
+                    });
+                l.append("svg:path").attr("class","link_outline link_path");
+                l.append("svg:path").attr("class","link_line link_path")
+                    .classed("link_subflow", function(d) { return activeSubflow && (d.source.type === "subflow" || d.target.type === "subflow") });
+            });
+    
+            link.exit().remove();
+            var links = vis.selectAll(".link_path");
+            links.each(function(d) {
+                var link = d3.select(this);
+                if (d.added || d===selected_link || d.selected || dirtyNodes[d.source.id] || dirtyNodes[d.target.id]) {
+                    link.attr("d",function(d){
+                        var numOutputs = d.source.outputs || 1;
+                        var sourcePort = d.sourcePort || 0;
+                        var y = -((numOutputs-1)/2)*13 +13*sourcePort;
+        
+                        var dy = d.target.y-(d.source.y+y);
+                        var dx = (d.target.x-d.target.w/2)-(d.source.x+d.source.w/2);
+                        var delta = Math.sqrt(dy*dy+dx*dx);
+                        var scale = lineCurveScale;
+                        var scaleY = 0;
+                        if (delta < node_width) {
+                            scale = 0.75-0.75*((node_width-delta)/node_width);
+                        }
+        
+                        if (dx < 0) {
+                            scale += 2*(Math.min(5*node_width,Math.abs(dx))/(5*node_width));
+                            if (Math.abs(dy) < 3*node_height) {
+                                scaleY = ((dy>0)?0.5:-0.5)*(((3*node_height)-Math.abs(dy))/(3*node_height))*(Math.min(node_width,Math.abs(dx))/(node_width)) ;
+                            }
+                        }
+        
+                        d.x1 = d.source.x+d.source.w/2;
+                        d.y1 = d.source.y+y;
+                        d.x2 = d.target.x-d.target.w/2;
+                        d.y2 = d.target.y;
+        
+                        return "M "+(d.source.x+d.source.w/2)+" "+(d.source.y+y)+
+                            " C "+(d.source.x+d.source.w/2+scale*node_width)+" "+(d.source.y+y+scaleY*node_height)+" "+
+                            (d.target.x-d.target.w/2-scale*node_width)+" "+(d.target.y-scaleY*node_height)+" "+
+                            (d.target.x-d.target.w/2)+" "+d.target.y;
+                    });
+                }
+            })
+    
+            link.classed("link_selected", function(d) { return d === selected_link || d.selected; });
+            link.classed("link_unknown",function(d) { 
+                delete d.added;
+                return d.target.type == "unknown" || d.source.type == "unknown"
+            });
+        } else {
+            // JOINING - unselect any selected links
+            vis.selectAll(".link_selected").data(
+                activeLinks,
+                function(d) {
+                    return d.source.id+":"+d.sourcePort+":"+d.target.id+":"+d.target.i;
+                }
+            ).classed("link_selected", false);
         }
-
-        var link = vis.selectAll(".link").data(
-            RED.nodes.links.filter(function(d) {
-                return d.source.z == activeWorkspace && d.target.z == activeWorkspace;
-            }),
-            function(d) {
-                return d.source.id+":"+d.sourcePort+":"+d.target.id+":"+d.target.i;
-            }
-        );
-
-        var linkEnter = link.enter().insert("g",".node").attr("class","link");
-
-        linkEnter.each(function(d,i) {
-            var l = d3.select(this);
-            l.append("svg:path").attr("class","link_background link_path")
-               .on("mousedown",function(d) {
-                    mousedown_link = d;
-                    clearSelection();
-                    selected_link = mousedown_link;
-                    updateSelection();
-                    redraw();
-                    d3.event.stopPropagation();
-                })
-                .on("touchstart",function(d) {
-                    mousedown_link = d;
-                    clearSelection();
-                    selected_link = mousedown_link;
-                    updateSelection();
-                    redraw();
-                    d3.event.stopPropagation();
-                });
-            l.append("svg:path").attr("class","link_outline link_path");
-            l.append("svg:path").attr("class","link_line link_path")
-                .classed("link_subflow", function(d) { return activeSubflow && (d.source.type === "subflow" || d.target.type === "subflow") });
-        });
-
-        link.exit().remove();
-
-        var links = vis.selectAll(".link_path")
-        links.attr("d",function(d){
-                var numOutputs = d.source.outputs || 1;
-                var sourcePort = d.sourcePort || 0;
-                var y = -((numOutputs-1)/2)*13 +13*sourcePort;
-
-                var dy = d.target.y-(d.source.y+y);
-                var dx = (d.target.x-d.target.w/2)-(d.source.x+d.source.w/2);
-                var delta = Math.sqrt(dy*dy+dx*dx);
-                var scale = lineCurveScale;
-                var scaleY = 0;
-                if (delta < node_width) {
-                    scale = 0.75-0.75*((node_width-delta)/node_width);
-                }
-
-                if (dx < 0) {
-                    scale += 2*(Math.min(5*node_width,Math.abs(dx))/(5*node_width));
-                    if (Math.abs(dy) < 3*node_height) {
-                        scaleY = ((dy>0)?0.5:-0.5)*(((3*node_height)-Math.abs(dy))/(3*node_height))*(Math.min(node_width,Math.abs(dx))/(node_width)) ;
-                    }
-                }
-
-                d.x1 = d.source.x+d.source.w/2;
-                d.y1 = d.source.y+y;
-                d.x2 = d.target.x-d.target.w/2;
-                d.y2 = d.target.y;
-
-                return "M "+(d.source.x+d.source.w/2)+" "+(d.source.y+y)+
-                    " C "+(d.source.x+d.source.w/2+scale*node_width)+" "+(d.source.y+y+scaleY*node_height)+" "+
-                    (d.target.x-d.target.w/2-scale*node_width)+" "+(d.target.y-scaleY*node_height)+" "+
-                    (d.target.x-d.target.w/2)+" "+d.target.y;
-        })
-
-        link.classed("link_selected", function(d) { return d === selected_link || d.selected; });
-        link.classed("link_unknown",function(d) { return d.target.type == "unknown" || d.source.type == "unknown"});
+        
 
         if (d3.event) {
             d3.event.preventDefault();
@@ -1694,6 +1743,7 @@ RED.view = (function() {
         
     }
 
+<<<<<<< HEAD
     RED.keyboard.add(/* z */ 90,{ctrl:true},function(){RED.history.pop();});
     RED.keyboard.add(/* a */ 65,{ctrl:true},function(){selectAll();d3.event.preventDefault();});
     RED.keyboard.add(/* = */ 187,{ctrl:true},function(){zoomIn();d3.event.preventDefault();});
@@ -1715,6 +1765,10 @@ RED.view = (function() {
         // Add by MCF. Enable deploy always
         $("#btn-deploy").removeClass("disabled").addClass("btn-danger");
         // Add by MCF, end
+=======
+    function focusView() {
+        $("#chart svg").focus();
+>>>>>>> 5efc89d514c3a16ebf25715a3b1f3c5326dbec99
     }
 
     /**
@@ -1732,7 +1786,7 @@ RED.view = (function() {
                 var new_workspaces = result[2];
                 var new_subflows = result[3];
                 
-                var new_ms = new_nodes.filter(function(n) { return n.z == activeWorkspace }).map(function(n) { return {n:n};});
+                var new_ms = new_nodes.filter(function(n) { return n.z == RED.workspaces.active() }).map(function(n) { return {n:n};});
                 var new_node_ids = new_nodes.map(function(n){ return n.id; });
 
                 // TODO: pick a more sensible root node
@@ -1788,10 +1842,10 @@ RED.view = (function() {
                     links:new_links,
                     workspaces:new_workspaces,
                     subflows:new_subflows,
-                    dirty:RED.view.dirty()
+                    dirty:RED.nodes.dirty()
                 });
 
-
+                updateActiveNodes();
                 redraw();
             }
         } catch(error) {
@@ -1804,239 +1858,29 @@ RED.view = (function() {
         }
     }
 
-    function showExportNodesDialog() {
-        mouse_mode = RED.state.EXPORT;
-        var nns = RED.nodes.createExportableNodeSet(moving_set);
-        $("#dialog-form").html($("script[data-template-name='export-clipboard-dialog']").html());
-        $("#node-input-export").val(JSON.stringify(nns));
-        $("#node-input-export").focus(function() {
-                var textarea = $(this);
-                textarea.select();
-                textarea.mouseup(function() {
-                        textarea.unbind("mouseup");
-                        return false;
-                });
-        });
-        $( "#dialog" ).dialog("option","title","Export nodes to clipboard").dialog( "open" );
-        $("#node-input-export").focus();
-    }
-
-    function showExportNodesLibraryDialog() {
-        mouse_mode = RED.state.EXPORT;
-        var nns = RED.nodes.createExportableNodeSet(moving_set);
-        $("#dialog-form").html($("script[data-template-name='export-library-dialog']").html());
-        $("#node-input-filename").attr('nodes',JSON.stringify(nns));
-        $( "#dialog" ).dialog("option","title","Export nodes to library").dialog( "open" );
-    }
-
-    function showImportNodesDialog() {
-        mouse_mode = RED.state.IMPORT;
-        $("#dialog-form").html($("script[data-template-name='import-dialog']").html());
-        $("#node-input-import").val("");
-        $( "#dialog" ).dialog("option","title","Import nodes").dialog( "open" );
-    }
-
-    function showRenameWorkspaceDialog(id) {
-        var ws = RED.nodes.workspace(id);
-        $( "#node-dialog-rename-workspace" ).dialog("option","workspace",ws);
-
-        if (workspace_tabs.count() == 1) {
-            $( "#node-dialog-rename-workspace").next().find(".leftButton")
-                .prop('disabled',true)
-                .addClass("ui-state-disabled");
-        } else {
-            $( "#node-dialog-rename-workspace").next().find(".leftButton")
-                .prop('disabled',false)
-                .removeClass("ui-state-disabled");
-        }
-
-        $( "#node-input-workspace-name" ).val(ws.label);
-        $( "#node-dialog-rename-workspace" ).dialog("open");
-    }
-    
-    function showSubflowDialog(id) {
-        RED.editor.editSubflow(RED.nodes.subflow(id));
-    }
-    function findAvailableSubflowIOPosition(subflow) {
-        var pos = {x:70,y:70};
-        for (var i=0;i<subflow.out.length+subflow.in.length;i++) {
-            var port;
-            if (i < subflow.out.length) {
-                port = subflow.out[i];
-            } else {
-                port = subflow.in[i-subflow.out.length];
-            }
-            if (port.x == pos.x && port.y == pos.y) {
-                pos.x += 55;
-                i=0;
-            }
-        }
-        return pos;
-    }
-    
-    function addSubflowInput(id) {
-        var subflow = RED.nodes.subflow(id);
-        var position = findAvailableSubflowIOPosition(subflow);
-        var newInput = {
-            type:"subflow",
-            direction:"in",
-            z:subflow.id,
-            i:subflow.in.length,
-            x:position.x,
-            y:position.y,
-            id:RED.nodes.id()
-        };
-        var oldInCount = subflow.in.length;
-        subflow.in.push(newInput);
-        subflow.dirty = true;
-        var wasDirty = RED.view.dirty();
-        var wasChanged = subflow.changed;
-        subflow.changed = true;
+    // TODO: DRY
+    var eventHandler = (function() {
+        var handlers = {};
         
-        RED.nodes.eachNode(function(n) {
-            if (n.type == "subflow:"+subflow.id) {
-                n.changed = true;
-                n.inputs = subflow.in.length;
-                RED.editor.updateNodeProperties(n);
-            }
-        });
-        var historyEvent = {
-            t:'edit',
-            node:subflow,
-            dirty:wasDirty,
-            changed:wasChanged,
-            subflow: {
-                inputCount: oldInCount
-            }
-        };
-        RED.history.push(historyEvent);
-        $("#workspace-subflow-add-input").toggleClass("disabled",true);
-        updateSelection();
-        RED.view.redraw();
-    }
-        
-    function addSubflowOutput(id) {
-        var subflow = RED.nodes.subflow(id);
-        var position = findAvailableSubflowIOPosition(subflow);
-        
-        var newOutput = {
-            type:"subflow",
-            direction:"out",
-            z:subflow.id,
-            i:subflow.out.length,
-            x:position.x,
-            y:position.y,
-            id:RED.nodes.id()
-        };
-        var oldOutCount = subflow.out.length;
-        subflow.out.push(newOutput);
-        subflow.dirty = true;
-        var wasDirty = RED.view.dirty();
-        var wasChanged = subflow.changed;
-        subflow.changed = true;
-        
-        RED.nodes.eachNode(function(n) {
-            if (n.type == "subflow:"+subflow.id) {
-                n.changed = true;
-                n.outputs = subflow.out.length;
-                RED.editor.updateNodeProperties(n);
-            }
-        });
-        var historyEvent = {
-            t:'edit',
-            node:subflow,
-            dirty:wasDirty,
-            changed:wasChanged,
-            subflow: {
-                outputCount: oldOutCount
-            }
-        };
-        RED.history.push(historyEvent);
-        updateSelection();
-        RED.view.redraw();
-    }
-
-    $("#node-dialog-rename-workspace form" ).submit(function(e) { e.preventDefault();});
-    $( "#node-dialog-rename-workspace" ).dialog({
-        modal: true,
-        autoOpen: false,
-        width: 500,
-        title: "Rename sheet",
-        buttons: [
-            {
-                class: 'leftButton',
-                text: "Delete",
-                click: function() {
-                    var workspace = $(this).dialog('option','workspace');
-                    $( this ).dialog( "close" );
-                    deleteWorkspace(workspace.id);
-                }
+        return {
+            on: function(evt,func) {
+                handlers[evt] = handlers[evt]||[];
+                handlers[evt].push(func);
             },
-            {
-                text: "Ok",
-                click: function() {
-                    var workspace = $(this).dialog('option','workspace');
-                    var label = $( "#node-input-workspace-name" ).val();
-                    if (workspace.label != label) {
-                        workspace_tabs.renameTab(workspace.id,label);
-                        RED.view.dirty(true);
-                        $("#btn-workspace-menu-"+workspace.id.replace(".","-")).text(label);
-                        // TODO: update entry in menu
+            emit: function(evt,arg) {
+                if (handlers[evt]) {
+                    for (var i=0;i<handlers[evt].length;i++) {
+                        handlers[evt][i](arg);
                     }
-                    $( this ).dialog( "close" );
-                }
-            },
-            {
-                text: "Cancel",
-                click: function() {
-                    $( this ).dialog( "close" );
+                    
                 }
             }
-        ],
-        open: function(e) {
-            RED.keyboard.disable();
-        },
-        close: function(e) {
-            RED.keyboard.enable();
         }
-    });
-    $( "#node-dialog-delete-workspace" ).dialog({
-        modal: true,
-        autoOpen: false,
-        width: 500,
-        title: "Confirm delete",
-        buttons: [
-            {
-                text: "Ok",
-                click: function() {
-                    var workspace = $(this).dialog('option','workspace');
-                    RED.view.removeWorkspace(workspace);
-                    var historyEvent = RED.nodes.removeWorkspace(workspace.id);
-                    historyEvent.t = 'delete';
-                    historyEvent.dirty = dirty;
-                    historyEvent.workspaces = [workspace];
-                    RED.history.push(historyEvent);
-                    RED.view.dirty(true);
-                    $( this ).dialog( "close" );
-                }
-            },
-            {
-                text: "Cancel",
-                click: function() {
-                    $( this ).dialog( "close" );
-                }
-            }
-        ],
-        open: function(e) {
-            RED.keyboard.disable();
-        },
-        close: function(e) {
-            RED.keyboard.enable();
-        }
-
-    });
-
+    })();
+    
     return {
+        init: init,
+        on: eventHandler.on,
         state:function(state) {
             if (state == null) {
                 return mouse_mode
@@ -2044,269 +1888,51 @@ RED.view = (function() {
                 mouse_mode = state;
             }
         },
-        addWorkspace: function(ws) {
-            workspace_tabs.addTab(ws);
-            workspace_tabs.resize();
-        },
-        removeWorkspace: function(ws) {
-            if (workspace_tabs.contains(ws.id)) {
-                workspace_tabs.removeTab(ws.id);
+        
+        redraw: function(updateActive) {
+            if (updateActive) {
+                updateActiveNodes();
             }
-        },
-        getWorkspace: function() {
-            return activeWorkspace;
-        },
-        showWorkspace: function(id) {
-            workspace_tabs.activateTab(id);
-        },
-        redraw: function() {
-            RED.nodes.eachSubflow(function(sf) {
-                if (workspace_tabs.contains(sf.id)) {
-                    workspace_tabs.renameTab(sf.id,"Subflow: "+sf.name);
-                }
-            });
+            RED.workspaces.refresh();
             redraw();   
         },
-        dirty: function(d) {
-            if (d == null) {
-                return dirty;
-            } else {
-                setDirty(d);
-            }
-        },
+        focus: focusView,
         importNodes: importNodes,
-        resize: function() {
-            workspace_tabs.resize();
-        },
         status: function(s) {
-            showStatus = s;
-            RED.nodes.eachNode(function(n) { n.dirty = true;});
-            //TODO: subscribe/unsubscribe here
-            redraw();
+            if (s == null) {
+                return showStatus;
+            } else {
+                showStatus = s;
+                RED.nodes.eachNode(function(n) { n.dirty = true;});
+                //TODO: subscribe/unsubscribe here
+                redraw();
+            }
         },
         calculateTextWidth: calculateTextWidth,
-
-        //TODO: should these move to an import/export module?
-        showImportNodesDialog: showImportNodesDialog,
-        showExportNodesDialog: showExportNodesDialog,
-        showExportNodesLibraryDialog: showExportNodesLibraryDialog, 
-        addFlow: function() {
-            var ws = {type:"subflow",id:RED.nodes.id(),label:"Flow 1", closeable: true};
-            RED.nodes.addWorkspace(ws);
-            workspace_tabs.addTab(ws);
-            workspace_tabs.activateTab(ws.id);
-            return ws;
-        },
-        
-        showSubflow: function(id) {
-            if (!workspace_tabs.contains(id)) {
-                var sf = RED.nodes.subflow(id);
-                workspace_tabs.addTab({type:"subflow",id:id,label:"Subflow: "+sf.name, closeable: true});
-                workspace_tabs.resize();
-            }
-            workspace_tabs.activateTab(id);
-        },
-        
-        createSubflow: function() {
-            var lastIndex = 0;
-            RED.nodes.eachSubflow(function(sf) {
-               var m = (new RegExp("^Subflow (\\d+)$")).exec(sf.name);
-               if (m) {
-                   lastIndex = Math.max(lastIndex,m[1]);
-               }
-            });
-            
-            var name = "Subflow "+(lastIndex+1);
-               
-            var subflowId = RED.nodes.id();
-            var subflow = {
-                type:"subflow",
-                id:subflowId,
-                name:name,
-                in: [],
-                out: []
-            };
-            RED.nodes.addSubflow(subflow);
-            RED.history.push({
-                t:'createSubflow',
-                subflow: subflow,
-                dirty:RED.view.dirty()
-            });
-            RED.view.showSubflow(subflowId);
-        },
-        
-        convertToSubflow: function() {
-            if (moving_set.length === 0) {
-                RED.notify("<strong>Cannot create subflow</strong>: no nodes selected","error");
-                return;
-            }
-            var i;
-            var nodes = {};
-            var new_links = [];
-            var removedLinks = [];
-            
-            var candidateInputs = [];
-            var candidateOutputs = [];
-            
-            var boundingBox = [moving_set[0].n.x,moving_set[0].n.y,moving_set[0].n.x,moving_set[0].n.y];
-            
-            for (i=0;i<moving_set.length;i++) {
-                var n = moving_set[i];
-                nodes[n.n.id] = {n:n.n,outputs:{}};
-                boundingBox = [
-                    Math.min(boundingBox[0],n.n.x),
-                    Math.min(boundingBox[1],n.n.y),
-                    Math.max(boundingBox[2],n.n.x),
-                    Math.max(boundingBox[3],n.n.y)
-                ]
-            }
-            
-            var center = [(boundingBox[2]+boundingBox[0]) / 2,(boundingBox[3]+boundingBox[1]) / 2];
-            
-            RED.nodes.eachLink(function(link) {
-                if (nodes[link.source.id] && nodes[link.target.id]) {
-                    // A link wholely within the selection
+        select: function(selection) {
+            if (typeof selection !== "undefined") {
+                clearSelection();
+                if (typeof selection == "string") {
+                    var selectedNode = RED.nodes.node(selection);
+                    if (selectedNode) {
+                        selectedNode.selected = true;
+                        selectedNode.dirty = true;
+                        moving_set = [{n:selectedNode}];
+                    }
                 }
-                
-                if (nodes[link.source.id] && !nodes[link.target.id]) {
-                    // An outbound link from the selection
-                    candidateOutputs.push(link);
-                    removedLinks.push(link);
-                }
-                if (!nodes[link.source.id] && nodes[link.target.id]) {
-                    // An inbound link
-                    candidateInputs.push(link);
-                    removedLinks.push(link);
-                }
-            });
-            
-            var outputs = {};
-            candidateOutputs = candidateOutputs.filter(function(v) {
-                 if (outputs[v.source.id+":"+v.sourcePort]) {
-                     outputs[v.source.id+":"+v.sourcePort].targets.push(v.target);
-                     return false;
-                 }
-                 v.targets = [];
-                 v.targets.push(v.target);
-                 outputs[v.source.id+":"+v.sourcePort] = v;
-                 return true;
-            });
-            candidateOutputs.sort(function(a,b) { return a.source.y-b.source.y});
-            
-            if (candidateInputs.length > 1) {
-                 RED.notify("<strong>Cannot create subflow</strong>: multiple inputs to selection","error");
-                 return;
             }
-            //if (candidateInputs.length == 0) {
-            //     RED.notify("<strong>Cannot create subflow</strong>: no input to selection","error");
-            //     return;
-            //}
-            
-            
-            var lastIndex = 0;
-            RED.nodes.eachSubflow(function(sf) {
-               var m = (new RegExp("^Subflow (\\d+)$")).exec(sf.name);
-               if (m) {
-                   lastIndex = Math.max(lastIndex,m[1]);
-               }
-            });
-            
-            var name = "Subflow "+(lastIndex+1);
-               
-            var subflowId = RED.nodes.id();
-            var subflow = {
-                type:"subflow",
-                id:subflowId,
-                name:name,
-                in: candidateInputs.map(function(v,i) { var index = i; return {
-                    type:"subflow",
-                    direction:"in",
-                    x:v.target.x-(v.target.w/2)-80,
-                    y:v.target.y,
-                    z:subflowId,
-                    i:index,
-                    id:RED.nodes.id(),
-                    wires:[{id:v.target.id}]
-                }}),
-                out: candidateOutputs.map(function(v,i) { var index = i; return {
-                    type:"subflow",
-                    direction:"in",
-                    x:v.source.x+(v.source.w/2)+80,
-                    y:v.source.y,
-                    z:subflowId,
-                    i:index,
-                    id:RED.nodes.id(),
-                    wires:[{id:v.source.id,port:v.sourcePort}]
-                }})
-            };
-            RED.nodes.addSubflow(subflow);
-
-            var subflowInstance = {
-                id:RED.nodes.id(),
-                type:"subflow:"+subflow.id,
-                x: center[0],
-                y: center[1],
-                z: activeWorkspace,
-                inputs: subflow.in.length,
-                outputs: subflow.out.length,
-                h: Math.max(node_height,(subflow.out.length||0) * 15),
-                changed:true
-            }
-            subflowInstance._def = RED.nodes.getType(subflowInstance.type);
-            RED.editor.validateNode(subflowInstance);
-            RED.nodes.add(subflowInstance);
-            
-            candidateInputs.forEach(function(l) {
-                var link = {source:l.source, sourcePort:l.sourcePort, target: subflowInstance};
-                new_links.push(link);
-                RED.nodes.addLink(link);
-            });
-            
-            candidateOutputs.forEach(function(output,i) {
-                output.targets.forEach(function(target) {
-                    var link = {source:subflowInstance, sourcePort:i, target: target};
-                    new_links.push(link);
-                    RED.nodes.addLink(link);
-                });
-            });
-            
-            subflow.in.forEach(function(input) {
-                input.wires.forEach(function(wire) {
-                    var link = {source: input, sourcePort: 0, target: RED.nodes.node(wire.id) }
-                    new_links.push(link);
-                    RED.nodes.addLink(link);
-                });
-            });
-            subflow.out.forEach(function(output,i) {
-                output.wires.forEach(function(wire) {
-                    var link = {source: RED.nodes.node(wire.id), sourcePort: wire.port , target: output }
-                    new_links.push(link);
-                    RED.nodes.addLink(link);
-                });
-            });
-            
-            for (i=0;i<removedLinks.length;i++) {
-                RED.nodes.removeLink(removedLinks[i]);
-            }
-            
-            for (i=0;i<moving_set.length;i++) {
-                moving_set[i].n.z = subflow.id;
-            }
-
-            RED.history.push({
-                t:'createSubflow',
-                nodes:[subflowInstance.id],
-                links:new_links,
-                subflow: subflow,
-
-                activeWorkspace: activeWorkspace,
-                removedLinks: removedLinks,
-                
-                dirty:RED.view.dirty()
-            });
-            
-            setDirty(true);
+            updateSelection();
             redraw();
+        },
+        selection: function() {
+            var selection = {};
+            if (moving_set.length > 0) {
+                selection.nodes = moving_set.map(function(n) { return n.n;});
+            }
+            if (selected_link != null) {
+                selection.link = selected_link;
+            }
+            return selection;
         }
     };
 })();

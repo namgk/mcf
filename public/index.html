@@ -6,7 +6,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <!--
-  Copyright 2013, 2014 IBM Corp.
+  Copyright 2013, 2015 IBM Corp.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -31,14 +31,13 @@
 <body spellcheck="false">
 <div id="header">
     <span class="logo"><img src="node-red.png"> <span>Node-RED</span></span>
-    <div class="pull-right">
-        <a id="btn-deploy" class="button action-deploy disabled" href="#"><i id="btn-icn-deploy" class="fa fa-download"></i> Deploy</a>
-        <a id="btn-sidemenu" class="button dropdown-toggle" data-toggle="dropdown" href="#"><i class="fa fa-bars"></i></a>
-    </div>
+    <ul class="header-toolbar hide">
+        <li><a id="btn-sidemenu" class="button" data-toggle="dropdown" href="#"><i class="fa fa-bars"></i></a></li>
+    <ul>
 </div>
-<div id="main-container" class="sidebar-closed">
+<div id="main-container" class="sidebar-closed hide">
     <div id="palette">
-        <img src="spin.svg" class="palette-spinner"/>
+        <img src="spin.svg" class="palette-spinner hide"/>
         <div id="palette-container" class="palette-scroll">
         </div>
         <div id="palette-search">
@@ -51,9 +50,10 @@
         <div id="workspace-add-tab"><a id="btn-workspace-add-tab" href="#"><i class="fa fa-plus"></i></a></div>
         <div id="chart"></div>
         <div id="workspace-toolbar">
-            <a class="button" id="workspace-subflow-edit" href="#"><i class="fa fa-pencil"></i> edit subflow name</a>
+            <a class="button" id="workspace-subflow-edit" href="#"><i class="fa fa-pencil"></i> edit name</a>
             <a class="button disabled" id="workspace-subflow-add-input" href="#"><i class="fa fa-plus"></i> input</a>
             <a class="button" id="workspace-subflow-add-output" href="#"><i class="fa fa-plus"></i> output</a>
+            <a class="button" id="workspace-subflow-delete" href="#"><i class="fa fa-trash"></i> delete subflow</a>
         </div>
     </div>
 
@@ -76,6 +76,7 @@
 
 <div id="notifications"></div>
 <div id="dropTarget"><div>Drop the flow here<br/><i class="fa fa-download"></i></div></div>
+<div id="shade"></div>
 
 <div id="dialog" class="hide"><form id="dialog-form" class="form-horizontal"></form></div>
 <div id="node-config-dialog" class="hide"><form id="dialog-config-form" class="form-horizontal"></form><div class="form-tips" id="node-config-dialog-user-count"></div></div>
@@ -105,7 +106,8 @@
     </form>
 </div>
 
-<!-- Add by MCF, begin -->
+<!--<<<<<<< HEAD
+ Add by MCF, begin -->
 <div id="deploy-dialog-error" class="hide">
     Can't deploy without select flow or device!
 </div>
@@ -162,6 +164,8 @@
   </div>
 </div>
 
+<!--=======
+>>>>>>> 5efc89d514c3a16ebf25715a3b1f3c5326dbec99-->
 <div id="node-dialog-library-save-confirm" class="hide">
     <form class="form-horizontal">
         <div style="text-align: center; padding-top: 30px;">
@@ -215,25 +219,11 @@
         </div>
     </form>
 </div>
-<script type="text/x-red" data-template-name="export-clipboard-dialog">
-    <div class="form-row">
-        <label for="node-input-export" style="display: block; width:100%;"><i class="fa fa-clipboard"></i> Nodes:</label>
-        <textarea readonly style="font-family: monospace; font-size: 12px; background:rgb(226, 229, 255); padding-left: 0.5em;" class="input-block-level" id="node-input-export" rows="5"></textarea>
-    </div>
-    <div class="form-tips">
-        Select the text above and copy to the clipboard with Ctrl-A Ctrl-C.
-    </div>
-</script>
+
 <script type="text/x-red" data-template-name="export-library-dialog">
     <div class="form-row">
         <label for="node-input-filename" ><i class="fa fa-file"></i> Filename:</label>
         <input type="text" id="node-input-filename" placeholder="Filename">
-    </div>
-</script>
-<script type="text/x-red" data-template-name="import-dialog">
-    <div class="form-row">
-        <label for="node-input-import"><i class="fa fa-clipboard"></i> Nodes:</label>
-        <textarea style="font-family: monospace; font-size: 12px; background:rgb(226, 229, 255); padding-left: 0.5em;" class="input-block-level" id="node-input-import" rows="5" placeholder="Paste nodes here"></textarea>
     </div>
 </script>
 
@@ -248,9 +238,14 @@
 <script src="bootstrap/js/bootstrap.min.js"></script>
 <script src="jquery/js/jquery-ui-1.10.3.custom.min.js"></script>
 <script src="jquery/js/jquery.ui.touch-punch.min.js"></script>
+<script src="marked/marked.min.js"></script>
 <script src="orion/built-editor.min.js"></script>
+<script src="ace/ace.js"></script>
+<script src="ace/ext-language_tools.js"></script>
 <script src="d3.v3.min.js"></script>
 <script src="red/main.js"></script>
+<script src="red/settings.js"></script>
+<script src="red/user.js"></script>
 <script src="red/comms.js"></script>
 <script src="red/ui/state.js"></script>
 <!-- Add by MCF, begin -->
@@ -260,18 +255,22 @@
 <script src="red/nodes.js"></script>
 <script src="red/history.js"></script>
 <script src="red/validators.js"></script>
-<script src="red/settings.js"></script>
+<script src="red/ui/deploy.js"></script>
 <script src="red/ui/menu.js"></script>
 <script src="red/ui/keyboard.js"></script>
 <script src="red/ui/tabs.js"></script>
+<script src="red/ui/workspaces.js"></script>
 <script src="red/ui/view.js"></script>
 <script src="red/ui/sidebar.js"></script>
 <script src="red/ui/palette.js"></script>
 <script src="red/ui/tab-info.js"></script>
 <script src="red/ui/tab-config.js"></script>
 <script src="red/ui/editor.js"></script>
+<script src="red/ui/clipboard.js"></script>
 <script src="red/ui/library.js"></script>
 <script src="red/ui/notifications.js"></script>
+<script src="red/ui/subflow.js"></script>
 <script src="red/ui/touch/radialMenu.js"></script>
+
 </body>
 </html>

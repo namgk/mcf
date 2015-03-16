@@ -1,5 +1,5 @@
 /**
- * Copyright 2013 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -131,7 +131,32 @@ module.exports = {
     functionGlobalContext: {
         // os:require('os'),
         // bonescript:require('bonescript'),
-        // arduino:require('duino')
-    }
+        // jfive:require("johnny-five"),
+        // jboard:require("johnny-five").Board()
+    },
+    
+    
+    // The following property can be used to order the categories in the editor
+    // palette. If a node's category is not in the list, the category will get
+    // added to the end of the palette.
+    // If not set, the following default order is used:
+    //paletteCategories: ['subflows', 'input', 'output', 'function', 'social', 'storage', 'analysis', 'advanced'],
 
+    // Configure the logging output
+    logging: {
+        // Only console logging is currently supported
+        console: {
+            // Level of logging to be recorded. Options are: 
+            // fatal - only those errors which make the application unusable should be recorded
+            // error - record errors which are deemed fatal for a particular request + fatal errors 
+            // warn - record problems which are non fatal + errors + fatal errors
+            // info - record information about the general running of the application + warn + error + fatal errors
+            // debug - record information which is more verbose than info + info + warn + error + fatal errors
+            // trace - record very detailed logging + debug + info + warn + error + fatal errors
+            level: "info",
+            
+            // Whether or not to include metric events in the log output
+            metrics: false
+        }
+    }
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2014 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ var when = require('when');
 
 var storageModule;
 var settingsAvailable;
+var sessionsAvailable;
 
 function moduleSelector(aSettings) {
     var toReturn;
@@ -43,6 +44,7 @@ var storageModuleInterface = {
             try {
                 storageModule = moduleSelector(settings);
                 settingsAvailable = storageModule.hasOwnProperty("getSettings") && storageModule.hasOwnProperty("saveSettings");
+                sessionsAvailable = storageModule.hasOwnProperty("getSessions") && storageModule.hasOwnProperty("saveSessions");
             } catch (e) {
                 return when.reject(e);
             }
@@ -74,6 +76,21 @@ var storageModuleInterface = {
                 return when.resolve();
             }
         },
+        getSessions: function() {
+            if (sessionsAvailable) {
+                return storageModule.getSessions();
+            } else {
+                return when.resolve(null);
+            }
+        },
+        saveSessions: function(sessions) {
+            if (sessionsAvailable) {
+                return storageModule.saveSessions(sessions);
+            } else {
+                return when.resolve();
+            }
+        },
+        
         /* Library Functions */
         getAllFlows: function() {
             return storageModule.getAllFlows();

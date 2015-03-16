@@ -71,16 +71,27 @@ module.exports = function(RED) {
         this.on("input", function(msg) {
             if (smtpTransport) {
                 node.status({fill:"blue",shape:"dot",text:"sending"});
-                var payload = RED.util.ensureString(msg.payload);
                 if (msg.to && node.name && (msg.to !== node.name)) {
                     node.warn("Deprecated: msg properties should not override set node properties. See bit.ly/nr-override-msg-props");
                 }
-                smtpTransport.sendMail({
-                    from: node.userid, // sender address
-                    to: msg.to || node.name, // comma separated list of addressees
-                    subject: msg.topic, // subject line
-                    text: payload // plaintext body
-                }, function(error, info) {
+                var sendopts = { from: node.userid };   // sender address
+                sendopts.to = msg.to || node.name; // comma separated list of addressees
+                sendopts.subject = msg.topic || msg.title || "Message from Node-RED"; // subject line
+                if (Buffer.isBuffer(msg.payload)) { // if it's a buffer in the payload then auto create an attachment instead
+                    sendopts.attachments = [ { content: msg.payload, filename:(msg.filename.replace(/^.*[\\\/]/, '') || "file.bin") } ];
+                    if (msg.hasOwnProperty("headers") && msg.headers.hasOwnProperty("content-type")) {
+                        sendopts.attachments[0].contentType = msg.headers["content-type"];
+                    }
+                    // Create some body text..
+                    sendopts.text = "Your file from Node-RED is attached : "+(msg.filename.replace(/^.*[\\\/]/, '') || "file.bin")+ (msg.hasOwnProperty("description") ? "\n\n"+msg.description : "");
+                }
+                else {
+                    var payload = RED.util.ensureString(msg.payload);
+                    sendopts.text =  payload; // plaintext body
+                    if (/<[a-z][\s\S]*>/i.test(payload)) { sendopts.html = payload; } // html body
+                    if (msg.attachments) { sendopts.attachments = msg.attachments; } // add attachments
+                }
+                smtpTransport.sendMail(sendopts, function(error, info) {
                     if (error) {
                         node.error(error);
                         node.status({fill:"red",shape:"ring",text:"send failed"});
@@ -159,9 +170,9 @@ module.exports = function(RED) {
             imap.once('ready', function() {
                 node.status({fill:"blue",shape:"dot",text:"fetching"});
                 var pay = {};
-                imap.openBox('INBOX', true, function(err, box) {
+                imap.openBox('INBOX', false, function(err, box) {
                     if (box.messages.total > 0) {
-                        var f = imap.seq.fetch(box.messages.total + ':*', { bodies: ['HEADER.FIELDS (FROM SUBJECT DATE)','TEXT'] });
+                        var f = imap.seq.fetch(box.messages.total + ':*', { markSeen:true, bodies: ['HEADER.FIELDS (FROM SUBJECT DATE)','TEXT'] });
                         f.on('message', function(msg, seqno) {
                             node.log('message: #'+ seqno);
                             var prefix = '(#' + seqno + ') ';

@@ -1,5 +1,5 @@
 /**
- * Copyright 2013 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,12 +35,12 @@ RED.palette = (function() {
     // Add by MCF, end
 
     var exclusion = ['config','unknown','deprecated'];
-    var core = ['input', 'output', 'function', 'subflows', 'social', 'storage', 'analysis', 'advanced'];
+    var core = ['subflows', 'input', 'output', 'function', 'social', 'storage', 'analysis', 'advanced'];
 
     function createCategoryContainer(category){
         var escapedCategory = category.replace(" ","_");
-        $("#palette-container").append('<div class="palette-category">'+
-            '<div id="header-'+category+'" class="palette-header"><i class="expanded fa fa-caret-down"></i><span>'+category.replace("_"," ")+'</span></div>'+
+        var catDiv = $("#palette-container").append('<div id="palette-container-'+category+'" class="palette-category hide">'+
+            '<div id="palette-header-'+category+'" class="palette-header"><i class="expanded fa fa-caret-down"></i><span>'+category.replace("_"," ")+'</span></div>'+
             '<div class="palette-content" id="palette-base-category-'+category+'">'+
             '<div id="palette-'+category+'-input"></div>'+
             '<div id="palette-'+category+'-output"></div>'+
@@ -48,13 +48,11 @@ RED.palette = (function() {
             '</div>'+
             '</div>');
 
-        $("#header-"+category).on('click', function(e) {
+        $("#palette-header-"+category).on('click', function(e) {
             $(this).next().slideToggle();
             $(this).children("i").toggleClass("expanded");
         });
     }
-
-    core.forEach(createCategoryContainer);
 
     function setLabel(type, el,label) {
         var nodeWidth = 80;
@@ -97,7 +95,11 @@ RED.palette = (function() {
             if (label != type) {
                 l = "<p><b>"+label+"</b><br/><i>"+type+"</i></p>";
             }
-            popOverContent = $(l+($("script[data-help-name|='"+type+"']").html()||"<p>no information available</p>").trim()).slice(0,2);
+            
+            popOverContent = $(l+($("script[data-help-name|='"+type+"']").html()||"<p>no information available</p>").trim())
+                                .filter(function(n) {
+                                    return this.nodeType == 1 || (this.nodeType == 3 && this.textContent.trim().length > 0)
+                                }).slice(0,2);
         } catch(err) {
             // Malformed HTML may cause errors. TODO: need to understand what can break
             console.log("Error generating pop-over label for '"+type+"'.");
@@ -167,6 +169,7 @@ RED.palette = (function() {
             if ($("#palette-base-category-"+rootCategory).length === 0) {
                 createCategoryContainer(rootCategory);
             }
+            $("#palette-container-"+rootCategory).show();
 
             if ($("#palette-"+category).length === 0) {
                 $("#palette-base-category-"+rootCategory).append('<div id="palette-'+category+'"></div>');
@@ -184,6 +187,7 @@ RED.palette = (function() {
                 container:'body'
             });
             $(d).click(function() {
+                RED.view.focus();
                 var help = '<div class="node-help">'+($("script[data-help-name|='"+d.type+"']").html()||"")+"</div>";
                 $("#tab-info").html(help);
             });
@@ -191,7 +195,8 @@ RED.palette = (function() {
                 helper: 'clone',
                 appendTo: 'body',
                 revert: true,
-                revertDuration: 50
+                revertDuration: 50,
+                start: function() {RED.view.focus();}
             });
 
             setLabel(nt,$(d),label);
@@ -255,32 +260,42 @@ RED.palette = (function() {
         });
     }
 
-    $("#palette-search-input").focus(function(e) {
-        RED.keyboard.disable();
-    });
-    $("#palette-search-input").blur(function(e) {
-        RED.keyboard.enable();
-    });
-
-    $("#palette-search-clear").on("click",function(e) {
-        e.preventDefault();
-        $("#palette-search-input").val("");
-        filterChange();
-        $("#palette-search-input").focus();
-    });
-
-    $("#palette-search-input").val("");
-    $("#palette-search-input").on("keyup",function() {
-        filterChange();
-    });
-
-    $("#palette-search-input").on("focus",function() {
-        $("body").one("mousedown",function() {
-            $("#palette-search-input").blur();
+    function init() {
+        $(".palette-spinner").show();
+        if (RED.settings.paletteCategories) {
+            RED.settings.paletteCategories.forEach(createCategoryContainer);
+        } else {
+            core.forEach(createCategoryContainer);
+        }
+        
+        $("#palette-search-input").focus(function(e) {
+            RED.keyboard.disable();
         });
-    });
+        $("#palette-search-input").blur(function(e) {
+            RED.keyboard.enable();
+        });
+    
+        $("#palette-search-clear").on("click",function(e) {
+            e.preventDefault();
+            $("#palette-search-input").val("");
+            filterChange();
+            $("#palette-search-input").focus();
+        });
+    
+        $("#palette-search-input").val("");
+        $("#palette-search-input").on("keyup",function() {
+            filterChange();
+        });
+    
+        $("#palette-search-input").on("focus",function() {
+            $("body").one("mousedown",function() {
+                $("#palette-search-input").blur();
+            });
+        });
+    }
 
     return {
+        init: init,
         add:addNodeType,
         remove:removeNodeType,
         hide:hideNodeType,

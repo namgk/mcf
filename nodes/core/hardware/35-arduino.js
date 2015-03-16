@@ -16,7 +16,6 @@
 
 module.exports = function(RED) {
     "use strict";
-    var util = require("util");
     var ArduinoFirmata = require('arduino-firmata');
     var fs = require('fs');
     var plat = require('os').platform();
@@ -33,24 +32,25 @@ module.exports = function(RED) {
         var node = this;
         node.board = new ArduinoFirmata();
         if (portlist.indexOf(node.device) === -1) {
-            node.warn("Device "+node.device+" not found");
+            node.warn("device "+node.device+" not found");
         }
         else {
             node.board.connect(node.device);
         }
 
         node.board.on('boardReady', function(){
-            node.log("version "+node.board.boardVersion);
+            if (RED.settings.verbose) { node.log("version "+node.board.boardVersion); }
         });
 
-        node.on('close', function() {
+        node.on('close', function(done) {
             if (node.board) {
                 try {
                     node.board.close(function() {
-                        node.log("port closed");
+                        done();
+                        if (RED.settings.verbose) { node.log("port closed"); }
                     });
-                } catch(e) { }
-            }
+                } catch(e) { done(); }
+            } else { done(); }
         });
     }
     RED.nodes.registerType("arduino-board",ArduinoNode);
@@ -94,7 +94,7 @@ module.exports = function(RED) {
             });
         }
         else {
-            util.log("[Firmata-arduino] port not configured");
+            this.warn("port not configured");
         }
     }
     RED.nodes.registerType("arduino in",DuinoNodeIn);
@@ -144,17 +144,14 @@ module.exports = function(RED) {
             });
         }
         else {
-            util.log("[Firmata-arduino] port not configured");
+            this.warn("port not configured");
         }
     }
     RED.nodes.registerType("arduino out",DuinoNodeOut);
 
-    RED.httpAdmin.get("/arduinoports",function(req,res) {
+    RED.httpAdmin.get("/arduinoports", RED.auth.needsPermission("arduino.read"), function(req,res) {
         ArduinoFirmata.list(function (err, ports) {
-            //console.log(JSON.stringify(ports));
-            res.writeHead(200, {'Content-Type': 'text/plain'});
-            res.write(JSON.stringify(ports));
-            res.end();
+            res.json(ports);
         });
     });
 }

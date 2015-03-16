@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright 2014, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ var express = require('express');
 var fs = require("fs");
 var events = require("../events");
 var path = require("path");
-var util = require("util");
 
+var log = require("../log");
 var redNodes = require("../nodes");
 var settings = require("../settings");
 var deviceServer = require("../deviceServer");
@@ -29,6 +29,8 @@ module.exports = {
         res.json(redNodes.getFlows());
     },
     post: function(req,res) {
+        
+        // By MCF
         var deployDev = req.body.pop().TargetDev;
         console.log("targetDevice="+deployDev+"; localDevice="+localDev);
         if (deployDev == localDev) {
@@ -46,9 +48,15 @@ module.exports = {
 
         /*var flows = req.body;
         redNodes.setFlows(flows).then(function() {
+//=======
+//        var flows = req.body;
+//        var deploymentType = req.get("Node-RED-Deployment-Type")||"full";
+//        redNodes.setFlows(flows,deploymentType).then(function() {
+//>>>>>>> 5efc89d514c3a16ebf25715a3b1f3c5326dbec99
             res.send(204);
         }).otherwise(function(err) {
-            util.log("[red] Error saving flows : "+err);
+            log.warn("Error saving flows : "+err.message);
+            log.warn(err.stack);
             res.send(500,err.message);
         });*/
     }

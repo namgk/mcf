@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright 2014, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,94 @@
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 
+var levels = {
+    off:    1,
+    fatal:  10,
+    error:  20,
+    warn:   30,
+    info:   40,
+    debug:  50,
+    trace:  60,
+    metric: 99
+};
+
+var levelNames = {
+    10: "fatal",
+    20: "error",
+    30: "warn",
+    40: "info",
+    50: "debug",
+    60: "trace",
+    99: "metric"
+};
+
 var logHandlers = [];
 
-var ConsoleLogHandler = new EventEmitter();
-ConsoleLogHandler.on("log",function(msg) {
-        util.log("["+msg.level+"] ["+msg.type+":"+(msg.name||msg.id)+"] "+msg.msg);
-});
+var metricsEnabled = false;
+
+var ConsoleLogHandler = function(settings) {
+    this.logLevel = levels[settings.level]||levels.info;
+    this.metricsOn = settings.metrics||false;
+    metricsEnabled = this.metricsOn;
+    this.on("log",function(msg) {
+        /* istanbul ignore else */
+        if (this.shouldReportMessage(msg.level)) {
+            if (msg.level == log.METRIC) {
+                util.log("[metric] "+JSON.stringify(msg));
+            } else {
+                util.log("["+levelNames[msg.level]+"] "+(msg.type?"["+msg.type+":"+(msg.name||msg.id)+"] ":"")+msg.msg);
+            }
+        }
+    });
+}
+util.inherits(ConsoleLogHandler, EventEmitter);
+
+ConsoleLogHandler.prototype.shouldReportMessage = function(msglevel) {
+    return msglevel <= this.logLevel || (msglevel == log.METRIC && this.metricsOn);
+}
 
 var log = module.exports = {
+    FATAL:  10,
+    ERROR:  20,
+    WARN:   30,
+    INFO:   40,
+    DEBUG:  50,
+    TRACE:  60,
+    METRIC: 99,
+
+    init: function(settings) {
+        logHandlers = [];
+        var consoleSettings = {};
+        if (settings.logging) {
+            consoleSettings = settings.logging.console || {};
+        }
+        log.addHandler(new ConsoleLogHandler(consoleSettings));
+    },
     addHandler: function(func) {
         logHandlers.push(func);
     },
-    
     log: function(msg) {
+        msg.timestamp = Date.now();
         logHandlers.forEach(function(handler) {
             handler.emit("log",msg);
         });
+    },
+    info: function(msg) {
+        log.log({level:log.INFO,msg:msg});
+    },
+    warn: function(msg) {
+        log.log({level:log.WARN,msg:msg});
+    },
+    error: function(msg) {
+        log.log({level:log.ERROR,msg:msg});
+    },
+    trace: function(msg) {
+        log.log({level:log.TRACE,msg:msg});
+    },
+    debug: function(msg) {
+        log.log({level:log.DEBUG,msg:msg});
+    },
+    metric: function() {
+        return metricsEnabled;
     }
 }
-
-log.addHandler(ConsoleLogHandler);

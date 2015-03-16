@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright 2014, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -317,7 +317,11 @@ var registry = (function() {
         },
 
         getNodeConfig: function(id) {
-            var config = moduleConfigs[getModule(id)].nodes[getNode(id)];
+            var config = moduleConfigs[getModule(id)];
+            if (!config) {
+                return null;
+            }
+            config = config.nodes[getNode(id)];
             if (config) {
                 var result = config.config;
                 if (config.script) {
@@ -415,9 +419,22 @@ var registry = (function() {
             var removed = false;
             for (var mod in moduleConfigs) {
                 if (moduleConfigs.hasOwnProperty(mod)) {
-                    if (moduleConfigs[mod] && !moduleNodes[mod]) {
-                        var nodes = moduleConfigs[mod].nodes;
-                        for (var node in nodes) {
+                    var nodes = moduleConfigs[mod].nodes;
+                    var node;
+                    if (mod == "node-red") {
+                        // For core nodes, look for nodes that are enabled, !loaded and !errored
+                        for (node in nodes) {
+                            if (nodes.hasOwnProperty(node)) {
+                                var n = nodes[node];
+                                if (n.enabled && !n.err && !n.loaded) {
+                                    registry.removeNode(mod+"/"+node);
+                                    removed = true;
+                                }
+                            }
+                        }
+                    } else if (moduleConfigs[mod] && !moduleNodes[mod]) {
+                        // For node modules, look for missing ones
+                        for (node in nodes) {
                             if (nodes.hasOwnProperty(node)) {
                                 registry.removeNode(mod+"/"+node);
                                 removed = true;
@@ -487,6 +504,37 @@ function getNodeFiles(dir) {
     return result;
 }
 
+function scanDirForNodesModules(dir,moduleName) {
+    var results = [];
+    try {
+        var files = fs.readdirSync(dir);
+        for (var i=0;i<files.length;i++) {
+            var fn = files[i];
+            if (!registry.getNodeModuleInfo(fn)) {
+                if (!moduleName || fn == moduleName) {
+                    var pkgfn = path.join(dir,fn,"package.json");
+                    try {
+                        var pkg = require(pkgfn);
+                        if (pkg['node-red']) {
+                            var moduleDir = path.join(dir,fn);
+                            results.push({dir:moduleDir,package:pkg});
+                        }
+                    } catch(err) {
+                        if (err.code != "MODULE_NOT_FOUND") {
+                            // TODO: handle unexpected error
+                        }
+                    }
+                    if (fn == moduleName) {
+                        break;
+                    }
+                }
+            }
+        }
+    } catch(err) {
+    }
+    return results;
+}
+
 /**
  * Scans the node_modules path for nodes
  * @param moduleName the name of the module to be found
@@ -495,36 +543,19 @@ function getNodeFiles(dir) {
 function scanTreeForNodesModules(moduleName) {
     var dir = __dirname+"/../../nodes";
     var results = [];
+    var userDir;
+
+    if (settings.userDir) {
+        userDir = path.join(settings.userDir,"node_modules");
+        results = results.concat(scanDirForNodesModules(userDir,moduleName));
+    }
+    
     var up = path.resolve(path.join(dir,".."));
     while (up !== dir) {
         var pm = path.join(dir,"node_modules");
-        try {
-            var files = fs.readdirSync(pm);
-            for (var i=0;i<files.length;i++) {
-                var fn = files[i];
-                if (!registry.getNodeModuleInfo(fn)) {
-                    if (!moduleName || fn == moduleName) {
-                        var pkgfn = path.join(pm,fn,"package.json");
-                        try {
-                            var pkg = require(pkgfn);
-                            if (pkg['node-red']) {
-                                var moduleDir = path.join(pm,fn);
-                                results.push({dir:moduleDir,package:pkg});
-                            }
-                        } catch(err) {
-                            if (err.code != "MODULE_NOT_FOUND") {
-                                // TODO: handle unexpected error
-                            }
-                        }
-                        if (fn == moduleName) {
-                            break;
-                        }
-                    }
-                }
-            }
-        } catch(err) {
+        if (pm != userDir) {
+            results = results.concat(scanDirForNodesModules(pm,moduleName));
         }
-
         dir = up;
         up = path.resolve(path.join(dir,".."));
     }
@@ -644,14 +675,19 @@ function load(defaultNodesDir,disableNodePathScan) {
     return when.promise(function(resolve,reject) {
         // Find all of the nodes to load
         var nodeFiles;
+        var dir;
         if(defaultNodesDir) {
             nodeFiles = getNodeFiles(path.resolve(defaultNodesDir));
         } else {
             nodeFiles = getNodeFiles(__dirname+"/../../nodes");
         }
 
+        if (settings.userDir) {
+            dir = path.join(settings.userDir,"nodes");
+            nodeFiles = nodeFiles.concat(getNodeFiles(dir));
+        }
         if (settings.nodesDir) {
-            var dir = settings.nodesDir;
+            dir = settings.nodesDir;
             if (typeof settings.nodesDir == "string") {
                 dir = [dir];
             }

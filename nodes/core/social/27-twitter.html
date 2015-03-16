@@ -61,7 +61,6 @@
             access_token: {type: "password"},
             access_token_secret: {type:"password"}
         },
-            
         label: function() {
             return this.screen_name;
         },
@@ -177,11 +176,10 @@
                     $("#node-input-tags-row").show();
                     $("#node-input-tags-label").html("for");
                     $("#node-input-tags").attr("placeholder","comma-separated words, @ids, #hashtags");
-                }                
+                }
 
             });
             $("#node-input-user").change();
-        
         }
     });
 </script>
@@ -200,6 +198,7 @@
 
 <script type="text/x-red" data-help-name="twitter out">
     <p>Twitter out node. Tweets the <b>msg.payload</b>.</p>
+    <p>To send a Direct Message (DM) - use a payload like "D {username} {message}"</p>
     <p>If <b>msg.media</b> exists and is a Buffer object, this node will treat it
        as an image and attach it to the tweet.</p>
 </script>

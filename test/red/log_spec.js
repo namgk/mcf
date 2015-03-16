@@ -14,9 +14,60 @@
  * limitations under the License.
  **/
 var should = require("should");
+var sinon = require("sinon");
+var util = require("util");
 
 describe("red/log", function() {
     it('can be required without errors', function() {
         require("../../red/log");
     });
+
+    var log = require("../../red/log");
+    var sett = {logging: { console: { level: 'metric', metrics: true } } };
+    log.init(sett);
+
+    beforeEach(function () {
+        var spy = sinon.spy(util, 'log');
+    });
+
+    afterEach(function() {
+        util.log.restore();
+    });
+
+    it('it can raise an error', function() {
+        var ret = log.error("This is an error");
+        sinon.assert.calledWithMatch(util.log,"");
+    });
+
+    it('it can raise a trace', function() {
+        var ret = log.trace("This is a trace");
+        sinon.assert.calledWithMatch(util.log,"");
+    });
+
+    it('it can raise a debug', function() {
+        var ret = log.debug("This is a debug");
+        sinon.assert.calledWithMatch(util.log,"");
+    });
+
+    it('it can raise a metric', function() {
+        var metrics = {};
+        metrics.level = log.METRIC;
+        metrics.nodeid = "testid";
+        metrics.event = "node.test.testevent";
+        metrics.msgid = "12345";
+        metrics.value = "the metric payload";
+        var ret = log.log(metrics);
+        sinon.assert.calledWithMatch(util.log,"");
+    });
+
+    it('it checks metrics are enabled', function() {
+        log.metric().should.equal(true);
+        var sett = {logging: { console: { level: 'info', metrics: false } } };
+        log.init(sett);
+    });
+
+    it('it checks metrics are disabled', function() {
+        log.metric().should.equal(false);
+    });
+
 });

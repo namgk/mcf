@@ -1,5 +1,5 @@
 /**
- * Copyright 2013 IBM Corp.
+ * Copyright 2013,2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,14 +21,26 @@ module.exports = function(RED) {
 
     function FunctionNode(n) {
         RED.nodes.createNode(this,n);
+        var node = this;
         this.name = n.name;
         this.func = n.func;
-        var functionText = "var results = null; results = (function(msg){"+this.func+"\n})(msg);";
+        var functionText = "var results = null; results = (function(msg){\n"+this.func+"\n})(msg);";
         this.topic = n.topic;
         var sandbox = {
             console:console,
             util:util,
             Buffer:Buffer,
+            node: {
+                log : function() {
+                    node.log.apply(node, arguments);
+                },
+                error: function(){
+                    node.error.apply(node, arguments);
+                },
+                warn: function() {
+                    node.warn.apply(node, arguments);
+                }
+            },
             context: {
                 global:RED.settings.functionGlobalContext || {}
             }
@@ -62,14 +74,28 @@ module.exports = function(RED) {
                     }
                     this.send(results);
                     var duration = process.hrtime(start);
+                    var converted = Math.floor((duration[0]* 1e9 +  duration[1])/10000)/100;
+                    this.metric("duration", msg, converted);
                     if (process.env.NODE_RED_FUNCTION_TIME) {
-                        this.status({fill:"yellow",shape:"dot",text:""+Math.floor((duration[0]* 1e9 +  duration[1])/10000)/100});
+                        this.status({fill:"yellow",shape:"dot",text:""+converted});
                     }
                 } catch(err) {
-                    this.error(err.toString());
+                    var errorMessage = err.toString();
+                    var stack = err.stack.split(/\r?\n/);
+                    if (stack.length > 0) {
+                        var m = /at undefined:(\d+):(\d+)$/.exec(stack[1]);
+                        if (m) {
+                            var line = Number(m[1])-1;
+                            var cha = m[2];
+                            errorMessage += " (line "+line+", col "+cha+")";
+                        }
+                    }
+                    this.error(errorMessage);
                 }
             });
         } catch(err) {
+            // eg SyntaxError - which v8 doesn't include line number information
+            // so we can't do better than this
             this.error(err);
         }
     }

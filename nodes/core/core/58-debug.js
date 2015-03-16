@@ -15,6 +15,7 @@
  **/
 
 module.exports = function(RED) {
+    "use strict";
     var util = require("util");
     var events = require("events");
     var debuglength = RED.settings.debugMaxLength||1000;
@@ -25,14 +26,14 @@ module.exports = function(RED) {
         RED.nodes.createNode(this,n);
         this.name = n.name;
         this.complete = n.complete||"payload";
-        
+
         if (this.complete === "false") {
             this.complete = "payload";
         }
         if (this.complete === true) {
             this.complete = "true";
         }
-        
+
         this.console = n.console;
         this.active = (n.active === null || typeof n.active === "undefined") || n.active;
         var node = this;
@@ -98,11 +99,13 @@ module.exports = function(RED) {
             seen = null;
         } else if (typeof msg.msg === "boolean") {
             msg.msg = "(boolean) "+msg.msg.toString();
+        } else if (typeof msg.msg === "number") {
+            msg.msg = "(number) "+msg.msg.toString();
         } else if (msg.msg === 0) {
             msg.msg = "0";
         } else if (msg.msg === null || typeof msg.msg === "undefined") {
             msg.msg = "(undefined)";
-        }
+        } else { msg.msg = "(string) "+msg.msg; }
 
         if (msg.msg.length > debuglength) {
             msg.msg = msg.msg.substr(0,debuglength) +" ....";
@@ -113,13 +116,13 @@ module.exports = function(RED) {
 
     DebugNode.logHandler = new events.EventEmitter();
     DebugNode.logHandler.on("log",function(msg) {
-        if (msg.level === "warn" || msg.level === "error") {
+        if (msg.level === RED.log.WARN || msg.level === RED.log.ERROR) {
             sendDebug(msg);
         }
     });
     RED.log.addHandler(DebugNode.logHandler);
 
-    RED.httpAdmin.post("/debug/:id/:state", function(req,res) {
+    RED.httpAdmin.post("/debug/:id/:state", RED.auth.needsPermission("debug.write"), function(req,res) {
         var node = RED.nodes.getNode(req.params.id);
         var state = req.params.state;
         if (node !== null && typeof node !== "undefined" ) {

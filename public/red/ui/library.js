@@ -1,5 +1,5 @@
 /**
- * Copyright 2013 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,14 +66,24 @@ RED.library = (function() {
             $("#btn-import-library-submenu").replaceWith(menu);
         });
     }
-    loadFlowLibrary();
-
-
     
     function createUI(options) {
         var libraryData = {};
         var selectedLibraryItem = null;
         var libraryEditor = null;
+        
+        // Orion editor has set/getText
+        // ACE editor has set/getValue
+        // normalise to set/getValue
+        if (options.editor.setText) {
+            // Orion doesn't like having pos passed in, so proxy the call to drop it
+            options.editor.setValue = function(text,pos) {
+                options.editor.setText.call(options.editor,text);
+            }
+        }
+        if (options.editor.getText) {
+            options.editor.getValue = options.editor.getText;
+        }
         
         function buildFileListItem(item) {
             var li = document.createElement("li");
@@ -122,7 +132,7 @@ RED.library = (function() {
                            $(this).addClass("list-selected");
                            $.get("library/"+options.url+root+item.fn, function(data) {
                                    selectedLibraryItem = item;
-                                   libraryEditor.setText(data);
+                                   libraryEditor.setValue(data,-1);
                            });
                        }
                    })();
@@ -147,7 +157,7 @@ RED.library = (function() {
             $("#node-select-library").children().remove();
             var bc = $("#node-dialog-library-breadcrumbs");
             bc.children().first().nextAll().remove();
-            libraryEditor.setText('');
+            libraryEditor.setValue('',-1);
             
             $.getJSON("library/"+options.url,function(data) {
                 $("#node-select-library").append(buildFileList("/",data));
@@ -208,14 +218,18 @@ RED.library = (function() {
             e.preventDefault();
         });
     
-        require(["orion/editor/edit"], function(edit) {
-            libraryEditor = edit({
-                parent:document.getElementById('node-select-library-text'),
-                lang:"js",
-                readonly: true
-            });
+        libraryEditor = ace.edit('node-select-library-text');
+        libraryEditor.setTheme("ace/theme/tomorrow");
+        if (options.mode) {
+            libraryEditor.getSession().setMode(options.mode);
+        }
+        libraryEditor.setOptions({
+            readOnly: true,
+            highlightActiveLine: false,
+            highlightGutterLine: false
         });
-    
+        libraryEditor.renderer.$cursorLayer.element.style.opacity=0;
+        libraryEditor.$blockScrolling = Infinity;
         
         $( "#node-dialog-library-lookup" ).dialog({
             title: options.type+" library",
@@ -232,7 +246,7 @@ RED.library = (function() {
                                 var field = options.fields[i];
                                 $("#node-input-"+field).val(selectedLibraryItem[field]);
                             }
-                            options.editor.setText(libraryEditor.getText());
+                            options.editor.setValue(libraryEditor.getValue(),-1);
                         }
                         $( this ).dialog( "close" );
                     }
@@ -297,19 +311,26 @@ RED.library = (function() {
                 //}
             }
             var queryArgs = [];
+            var data = {};
             for (var i=0;i<options.fields.length;i++) {
                 var field = options.fields[i];
                 if (field == "name") {
-                    queryArgs.push("name="+encodeURIComponent(name));
+                    data.name = name;
                 } else {
-                    queryArgs.push(encodeURIComponent(field)+"="+encodeURIComponent($("#node-input-"+field).val()));
+                    data[field] = $("#node-input-"+field).val();
                 }
             }
-            var queryString = queryArgs.join("&");
             
-            var text = options.editor.getText();
-            $.post("library/"+options.url+'/'+fullpath+"?"+queryString,text,function() {
-                    RED.notify("Saved "+options.type,"success");
+            data.text = options.editor.getValue();
+            $.ajax({
+                url:"library/"+options.url+'/'+fullpath,
+                type: "POST",
+                data: JSON.stringify(data),
+                contentType: "application/json; charset=utf-8"
+            }).done(function(data,textStatus,xhr) {
+                RED.notify("Saved "+options.type,"success");
+            }).fail(function(xhr,textStatus,err) {
+                RED.notify("Saved failed: "+xhr.responseText,"error");
             });
         }
         $( "#node-dialog-library-save-confirm" ).dialog({
@@ -359,9 +380,34 @@ RED.library = (function() {
 
     }
     
+    function exportFlow() {
+        //TODO: don't rely on the main dialog
+        var nns = RED.nodes.createExportableNodeSet(RED.view.selection().nodes);
+        $("#dialog-form").html($("script[data-template-name='export-library-dialog']").html());
+        $("#node-input-filename").attr('nodes',JSON.stringify(nns));
+        $( "#dialog" ).dialog("option","title","Export nodes to library").dialog( "open" );
+    }
+    
     return {
+        init: function() {
+            RED.view.on("selection-changed",function(selection) {
+                if (!selection.nodes) {
+                    RED.menu.setDisabled("btn-export-menu",true);
+                    RED.menu.setDisabled("btn-export-clipboard",true);
+                    RED.menu.setDisabled("btn-export-library",true);
+                } else {
+                    RED.menu.setDisabled("btn-export-menu",false);
+                    RED.menu.setDisabled("btn-export-clipboard",false);
+                    RED.menu.setDisabled("btn-export-library",false);
+                }
+            });
+            
+            loadFlowLibrary();
+        },
         create: createUI,
-        loadFlowLibrary: loadFlowLibrary
+        loadFlowLibrary: loadFlowLibrary,
+        
+        export: exportFlow
     }
 })();
 

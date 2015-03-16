@@ -20,7 +20,6 @@ var express = require('express');
 var sinon = require('sinon');
 var when = require('when');
 
-var app = express();
 var redNodes = require("../../../red/nodes");
 var server = require("../../../red/server");
 var settings = require("../../../red/settings");
@@ -218,7 +217,7 @@ describe("nodes api", function() {
                     if (module === "foo") {
                         return {
                             name:"foo",
-                            nodes:[{id:123}]
+                            nodes:[{id:"123"}]
                         };
                     }
                 });

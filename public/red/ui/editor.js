@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2014 IBM Corp.
+ * Copyright 2013, 2015 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,13 +28,15 @@ RED.editor = (function() {
      * @returns {boolean} whether the node is valid. Sets node.dirty if needed
      */
     function validateNode(node) {
-        var oldValue = node.valid;
-        node.valid = validateNodeProperties(node, node._def.defaults, node);
-        if (node._def._creds) {
-            node.valid = node.valid && validateNodeProperties(node, node._def.credentials, node._def._creds);
-        }
-        if (oldValue != node.valid) {
-            node.dirty = true;
+        if (node._def) {
+            var oldValue = node.valid;
+            node.valid = validateNodeProperties(node, node._def.defaults, node);
+            if (node._def._creds) {
+                node.valid = node.valid && validateNodeProperties(node, node._def.credentials, node._def._creds);
+            }
+            if (oldValue != node.valid) {
+                node.dirty = true;
+            }
         }
     }
     
@@ -75,7 +77,7 @@ RED.editor = (function() {
         }
         if (valid && definition[property].type && RED.nodes.getType(definition[property].type) && !("validate" in definition[property])) {
             if (!value || value == "_ADD_") {
-                valid = false;
+                valid = definition[property].hasOwnProperty("required") && !definition[property].required;
             } else {
                 var v = RED.nodes.node(value).valid;
                 valid = (v==null || v);
@@ -112,11 +114,7 @@ RED.editor = (function() {
             }
         }
         if (node.inputs === 0) {
-            RED.nodes.eachLink(function(l) {
-                if (l.target === node) {
-                    removedLinks.push(l);
-                }
-            });
+            removedLinks.concat(RED.nodes.filterLinks({target:node}));
         }
         for (var l=0;l<removedLinks.length;l++) {
             RED.nodes.removeLink(removedLinks[l]);
@@ -130,7 +128,8 @@ RED.editor = (function() {
             modal: true,
             autoOpen: false,
             closeOnEscape: false,
-            width: 500,
+            minWidth: 500,
+            width: 'auto',
             buttons: [
                 {
                     id: "node-dialog-ok",
@@ -139,7 +138,7 @@ RED.editor = (function() {
                         if (editing_node) {
                             var changes = {};
                             var changed = false;
-                            var wasDirty = RED.view.dirty();
+                            var wasDirty = RED.nodes.dirty();
                             var d;
 
                             if (editing_node._def.oneditsave) {
@@ -232,30 +231,26 @@ RED.editor = (function() {
                             if (changed) {
                                 var wasChanged = editing_node.changed;
                                 editing_node.changed = true;
-                                RED.view.dirty(true);
+                                RED.nodes.dirty(true);
                                 RED.history.push({t:'edit',node:editing_node,changes:changes,links:removedLinks,dirty:wasDirty,changed:wasChanged});
                             }
                             editing_node.dirty = true;
                             validateNode(editing_node);
                             RED.view.redraw();
-                        } else if (RED.view.state() == RED.state.EXPORT) {
-                            if (/library/.test($( "#dialog" ).dialog("option","title"))) {
-                                //TODO: move this to RED.library
-                                var flowName = $("#node-input-filename").val();
-                                if (!/^\s*$/.test(flowName)) {
-                                    $.ajax({
-                                        url:'library/flows/'+flowName,
-                                        type: "POST",
-                                        data: $("#node-input-filename").attr('nodes'),
-                                        contentType: "application/json; charset=utf-8"
-                                    }).done(function() {
-                                            RED.library.loadFlowLibrary();
-                                            RED.notify("Saved nodes","success");
-                                    });
-                                }
+                        } else if (/Export nodes to library/.test($( "#dialog" ).dialog("option","title"))) {
+                            //TODO: move this to RED.library
+                            var flowName = $("#node-input-filename").val();
+                            if (!/^\s*$/.test(flowName)) {
+                                $.ajax({
+                                    url:'library/flows/'+flowName,
+                                    type: "POST",
+                                    data: $("#node-input-filename").attr('nodes'),
+                                    contentType: "application/json; charset=utf-8"
+                                }).done(function() {
+                                        RED.library.loadFlowLibrary();
+                                        RED.notify("Saved nodes","success");
+                                });
                             }
-                        } else if (RED.view.state() == RED.state.IMPORT) {
-                            RED.view.importNodes($("#node-input-import").val());
                         }
                         $( this ).dialog( "close" );
                     }
@@ -264,6 +259,11 @@ RED.editor = (function() {
                     id: "node-dialog-cancel",
                     text: "Cancel",
                     click: function() {
+                        if (editing_node && editing_node._def) {
+                            if (editing_node._def.oneditcancel) {
+                                editing_node._def.oneditcancel.call(editing_node);
+                            }
+                        }
                         $( this ).dialog( "close" );
                     }
                 }
@@ -274,6 +274,11 @@ RED.editor = (function() {
                 }
             },
             open: function(e) {
+                $(this).parent().find(".ui-dialog-titlebar-close").hide();
+                var minWidth = $(this).dialog('option','minWidth');
+                if ($(this).outerWidth() < minWidth) {
+                    $(this).dialog('option','width',minWidth);
+                }
                 RED.keyboard.disable();
                 if (editing_node) {
                     var size = $(this).dialog('option','sizeCache-'+editing_node.type);
@@ -290,7 +295,7 @@ RED.editor = (function() {
                     RED.view.state(RED.state.DEFAULT);
                 }
                 $( this ).dialog('option','height','auto');
-                $( this ).dialog('option','width','500');
+                $( this ).dialog('option','width','auto');
                 if (editing_node) {
                     RED.sidebar.info.refresh(editing_node);
                 }
@@ -494,7 +499,7 @@ RED.editor = (function() {
                 class: 'leftButton',
                 text: "Edit flow",
                 click: function() {
-                    RED.view.showSubflow(id);
+                    RED.workspaces.show(id);
                     $("#node-dialog-ok").click();
                 }
             });
@@ -558,6 +563,9 @@ RED.editor = (function() {
                             if (configTypeDef.ondelete) {
                                 configTypeDef.ondelete.call(RED.nodes.node(configId));
                             }
+                            if (configTypeDef.oneditdelete) {
+                                configTypeDef.oneditdelete.call(RED.nodes.node(configId));
+                            }
                             RED.nodes.remove(configId);
                             for (var i=0;i<configNode.users.length;i++) {
                                 var user = configNode.users[i];
@@ -569,7 +577,7 @@ RED.editor = (function() {
                                 validateNode(user);
                             }
                             updateConfigNodeSelect(configProperty,configType,"");
-                            RED.view.dirty(true);
+                            RED.nodes.dirty(true);
                             $( this ).dialog( "close" );
                             RED.view.redraw();
                         }
@@ -612,7 +620,8 @@ RED.editor = (function() {
     $( "#node-config-dialog" ).dialog({
             modal: true,
             autoOpen: false,
-            width: 500,
+            minWidth: 500,
+            width: 'auto',
             closeOnEscape: false,
             buttons: [
                 {
@@ -660,7 +669,7 @@ RED.editor = (function() {
                         }
                         validateNode(configNode);
 
-                        RED.view.dirty(true);
+                        RED.nodes.dirty(true);
                         $(this).dialog("close");
 
                     }
@@ -692,11 +701,18 @@ RED.editor = (function() {
             resize: function(e,ui) {
             },
             open: function(e) {
+                $(this).parent().find(".ui-dialog-titlebar-close").hide();
+                var minWidth = $(this).dialog('option','minWidth');
+                if ($(this).outerWidth() < minWidth) {
+                    $(this).dialog('option','width',minWidth);
+                }
                 if (RED.view.state() != RED.state.EDITING) {
                     RED.keyboard.disable();
                 }
             },
             close: function(e) {
+                $(this).dialog('option','width','auto');
+                $(this).dialog('option','height','auto');
                 $("#dialog-config-form").html("");
                 if (RED.view.state() != RED.state.EDITING) {
                     RED.keyboard.enable();
@@ -709,47 +725,9 @@ RED.editor = (function() {
         modal: true,
         autoOpen: false,
         closeOnEscape: false,
-        width: 500,
+        minWidth: 500,
+        width: 'auto',
         buttons: [
-            {
-                class: 'leftButton',
-                text: "Delete",
-                click: function() {
-                    var removedNodes = [];
-                    var removedLinks = [];
-                    var startDirty = RED.view.dirty();
-
-                    RED.nodes.eachNode(function(n) {
-                        if (n.type == "subflow:"+editing_node.id) {
-                            removedNodes.push(n);
-                        }
-                        if (n.z == editing_node.id) {
-                            removedNodes.push(n);
-                        }
-                    });
-                    
-                    for (var i=0;i<removedNodes.length;i++) {
-                        var rmlinks = RED.nodes.remove(removedNodes[i].id);
-                        removedLinks = removedLinks.concat(rmlinks);
-                    }
-                    
-                    RED.nodes.removeSubflow(editing_node);
-                    
-                    RED.view.removeWorkspace(editing_node);
-                    
-                    RED.history.push({
-                        t:'delete',
-                        nodes:removedNodes,
-                        links:removedLinks,
-                        subflow: editing_node,
-                        dirty:startDirty
-                    });
-                    RED.view.dirty(true);
-                    RED.view.redraw();
-
-                    $( this ).dialog( "close" );
-                }
-            },
             {
                 id: "subflow-dialog-ok",
                 text: "Ok",
@@ -758,7 +736,7 @@ RED.editor = (function() {
                         var i;
                         var changes = {};
                         var changed = false;
-                        var wasDirty = RED.view.dirty();
+                        var wasDirty = RED.nodes.dirty();
                         
                         var newName = $("#subflow-input-name").val();
 
@@ -780,7 +758,7 @@ RED.editor = (function() {
                             });
                             var wasChanged = editing_node.changed;
                             editing_node.changed = true;
-                            RED.view.dirty(true);
+                            RED.nodes.dirty(true);
                             var historyEvent = {
                                 t:'edit',
                                 node:editing_node,
@@ -807,7 +785,12 @@ RED.editor = (function() {
             }
         ],
         open: function(e) {
+            $(this).parent().find(".ui-dialog-titlebar-close").hide();
             RED.keyboard.disable();
+            var minWidth = $(this).dialog('option','minWidth');
+            if ($(this).outerWidth() < minWidth) {
+                $(this).dialog('option','width',minWidth);
+            }
         },
         close: function(e) {
             RED.keyboard.enable();
@@ -819,6 +802,8 @@ RED.editor = (function() {
             editing_node = null;
         }
     });
+    $("#subflow-dialog form" ).submit(function(e) { e.preventDefault();});
+
     
     function showEditSubflowDialog(subflow) {
         editing_node = subflow;
@@ -844,6 +829,29 @@ RED.editor = (function() {
         editConfig: showEditConfigNodeDialog,
         editSubflow: showEditSubflowDialog,
         validateNode: validateNode,
-        updateNodeProperties: updateNodeProperties // TODO: only exposed for edit-undo
+        updateNodeProperties: updateNodeProperties, // TODO: only exposed for edit-undo
+        
+        createEditor: function(options) {
+            var editor = ace.edit(options.id);
+            editor.setTheme("ace/theme/tomorrow");
+            if (options.mode) {
+                editor.getSession().setMode(options.mode);
+            }
+            if (options.foldStyle) {
+                editor.getSession().setFoldStyle(options.foldStyle);
+            } else {
+                editor.getSession().setFoldStyle('markbeginend');
+            }
+            if (options.options) {
+                editor.setOptions(options.options);
+            } else {
+                editor.setOptions({
+                    enableBasicAutocompletion:true,
+                    enableSnippets:true
+                });
+            }
+            editor.$blockScrolling = Infinity;
+            return editor;
+        }
     }
 })();
